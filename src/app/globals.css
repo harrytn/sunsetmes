@@ -1,0 +1,158 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Sunset Messages – Global Stylesheet
+   Tailwind CSS v4 (CSS-first config) + custom design tokens
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Google Fonts must come FIRST (before @import "tailwindcss") ──────────── */
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600;700&display=swap");
+
+@import "tailwindcss";
+
+
+/* ─── Design Tokens ────────────────────────────────────────────────────────── */
+@theme inline {
+  /* Warm Sunset Palette */
+  --color-twilight-blue:   #8AA3C2;
+  --color-soft-peach:      #FFD194;
+  --color-deep-teal:       #1A8B9D;
+  --color-bright-ocean:    #35B0C4;
+  --color-warm-sand:       #FDF5E6;
+  --color-ocean-navy:      #2B4162;
+  --color-sunset-orange:   #FF512F;
+  --color-sunset-amber:    #F09819;
+
+  /* Semantic aliases */
+  --color-background:      var(--color-twilight-blue);
+  --color-foreground:      var(--color-ocean-navy);
+  --color-surface:         var(--color-warm-sand);
+  --color-accent:          var(--color-deep-teal);
+  --color-cta:             var(--color-sunset-orange);
+
+  /* Typography */
+  --font-serif:  "Playfair Display", Georgia, serif;
+  --font-sans:   "Inter", system-ui, -apple-system, sans-serif;
+
+  /* Spacing extras */
+  --spacing-18: 4.5rem;
+  --spacing-88: 22rem;
+
+  /* Border radius */
+  --radius-xl:  1rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+}
+
+/* ─── Base Styles ──────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* Prevent horizontal overflow on mobile */
+  overflow-x: hidden;
+  /* Smooth scrolling */
+  scroll-behavior: smooth;
+  /* Better text rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-ocean-navy);
+  /* Full-viewport warm sunset gradient background */
+  background: linear-gradient(
+    160deg,
+    #8AA3C2 0%,
+    #A8BFD4 25%,
+    #F5C98A 70%,
+    #FFD194 100%
+  );
+  background-attachment: fixed;
+  min-height: 100dvh;
+  margin: 0;
+}
+
+/* ─── Paper Texture Utility ────────────────────────────────────────────────── */
+/* SVG-based grain texture — no external image needed */
+.paper-texture {
+  position: relative;
+}
+.paper-texture::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  /* Subtle noise grain via SVG filter */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  pointer-events: none;
+  z-index: 1;
+}
+.paper-texture > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* ─── Glassmorphism Utilities ──────────────────────────────────────────────── */
+.glass {
+  background: rgba(253, 245, 230, 0.55);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(253, 245, 230, 0.45);
+}
+
+.glass-teal {
+  background: rgba(26, 139, 157, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(53, 176, 196, 0.3);
+}
+
+.glass-dark {
+  background: rgba(43, 65, 98, 0.25);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(43, 65, 98, 0.2);
+}
+
+/* ─── Typography ───────────────────────────────────────────────────────────── */
+.font-serif {
+  font-family: var(--font-serif);
+}
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+/* ─── Scrollbar Styling ────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(26, 139, 157, 0.35);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(26, 139, 157, 0.6);
+}
+
+/* ─── Safe area insets for iOS PWA ────────────────────────────────────────── */
+.safe-top    { padding-top:    env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-x      { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+
+/* ─── Tap highlight removal (mobile) ──────────────────────────────────────── */
+button, a, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* ─── Envelope 3D perspective container ───────────────────────────────────── */
+.envelope-perspective {
+  perspective: 1200px;
+  perspective-origin: 50% 30%;
+}

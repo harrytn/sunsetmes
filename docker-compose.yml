@@ -1,0 +1,23 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sunset_messages_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sunset_messages
+      POSTGRES_USER: sunset_user
+      POSTGRES_PASSWORD: sunset_secret
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sunset_user -d sunset_messages']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

@@ -1,0 +1,177 @@
+// prisma/schema.prisma
+// Prisma 7 schema — Economy Overhaul + E2EE + Daily Questions
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum DeliveryType {
+  STANDARD  // 14 days, 50 coins
+  EXPRESS   // 7 days, 100 coins
+  PIGEON    // distance-based, 150 coins
+}
+
+enum LetterStatus {
+  IN_FLIGHT
+  DELIVERED
+  DRAFT
+  LOST
+  RETURNED  // Pigeon failed → letter returned to sender with partial refund
+}
+
+enum TransactionType {
+  DAILY_CHECKIN       // +50 coins on first app open each day
+  QUESTION_REWARD     // grade × 10 coins for partner's answer
+  DELIVERY_STANDARD   // −50 coins
+  DELIVERY_EXPRESS    // −100 coins
+  DELIVERY_PIGEON     // −150 coins
+  PIGEON_REFUND       // +75 coins (50% refund on pigeon failure)
+  FAUCET_REFILL       // Legacy faucet
+  PIGEON_LOSS         // Legacy (kept for old data compat)
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  id          String  @id @default(cuid())
+  email       String  @unique
+  name        String
+  avatarColor String  @default("#1A8B9D")
+  pigeonCoins Int     @default(100)
+
+  /// RSA-OAEP 2048-bit public key stored as JWK JSON string.
+  publicKey String? @db.Text
+
+  /// Tracks the last daily check-in to prevent double-granting.
+  lastCheckIn DateTime?
+
+  sentLetters       Letter[]           @relation("SentLetters")
+  receivedLetters   Letter[]           @relation("ReceivedLetters")
+  transactions      Transaction[]
+  answers           Answer[]
+  pushSubscriptions PushSubscription[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Letter {
+  id          String @id @default(cuid())
+  senderId    String
+  recipientId String
+
+  sender    User @relation("SentLetters",     fields: [senderId],    references: [id], onDelete: Cascade)
+  recipient User @relation("ReceivedLetters", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  title String
+
+  // ── E2EE payload ───────────────────────────────────────────────────────────
+  /// AES-GCM-256 ciphertext of the letter body (base64)
+  encryptedContent String @db.Text
+
+  /// AES-GCM IV used to encrypt `encryptedContent` (base64, 12 bytes / 96-bit)
+  iv String
+
+  /// AES key wrapped with recipient's RSA-OAEP public key (base64)
+  encryptedKeyRecipient String @db.Text
+
+  /// AES key wrapped with sender's RSA-OAEP public key (base64)
+  encryptedKeySender String @db.Text
+
+  // ── Styling ────────────────────────────────────────────────────────────────
+  paperStyle   String @default("classic-sand")
+  waxSealColor String @default("#1A8B9D")
+
+  // ── Delivery metadata ─────────────────────────────────────────────────────
+  deliveryType DeliveryType @default(STANDARD)
+  status       LetterStatus @default(IN_FLIGHT)
+  deliverAt    DateTime
+  openedAt     DateTime?
+
+  // ── Pigeon-specific fields ────────────────────────────────────────────────
+  senderLat         Float?
+  senderLng         Float?
+  destLat           Float?
+  destLng           Float?
+  destAddress       String?
+  distanceKm        Float?
+  flightDurationSec Int?
+  pigeonSurvived    Boolean?
+  pigeonNote        String?
+  survivalRate      Float?
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([recipientId, deliverAt])
+  @@index([senderId, createdAt])
+}
+
+model Transaction {
+  id       String  @id @default(cuid())
+  userId   String
+  letterId String?
+
+  user   User    @relation(fields: [userId],   references: [id], onDelete: Cascade)
+  letter Letter? @relation(fields: [letterId], references: [id], onDelete: SetNull)
+
+  amount      Int
+  type        TransactionType
+  description String
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ─── Push Notifications ───────────────────────────────────────────────────────
+
+model PushSubscription {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  endpoint String @unique
+  p256dh   String
+  auth     String
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─── Daily Questions ──────────────────────────────────────────────────────────
+
+model DailyQuestion {
+  id      String   @id @default(cuid())
+  date    DateTime @unique  // Calendar day (start of UTC day, e.g. 2026-08-19T00:00:00Z)
+  text    String
+  answers Answer[]
+
+  createdAt DateTime @default(now())
+}
+
+model Answer {
+  id         String @id @default(cuid())
+  questionId String
+  userId     String
+  text       String
+  grade      Int?   // 0–5, assigned by the partner
+
+  question DailyQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId],     references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([questionId, userId])
+  @@index([userId])
+}
