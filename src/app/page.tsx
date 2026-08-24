@@ -57,14 +57,18 @@ export default async function HomePage() {
     orderBy: { name: "asc" },
   });
 
-  // ── Fetch inbox letters (NO content fields, exclude RETURNED) ───────────
+  // ── Fetch letters for both Inbox and Outbox (NO content fields) ────────
   const letters = await prisma.letter.findMany({
     where: {
-      recipientId: activeUser.id,
-      status: { not: 'RETURNED' },
+      OR: [
+        { recipientId: activeUser.id, status: { not: 'RETURNED' } },
+        { senderId: activeUser.id },
+      ],
     },
     select: {
       id: true,
+      senderId: true,
+      recipientId: true,
       title: true,
       paperStyle: true,
       waxSealColor: true,
@@ -79,8 +83,9 @@ export default async function HomePage() {
       destAddress: true,
       createdAt: true,
       sender: { select: { id: true, name: true, avatarColor: true } },
+      recipient: { select: { id: true, name: true, avatarColor: true } },
     },
-    orderBy: { deliverAt: "asc" },
+    orderBy: { createdAt: "desc" },
   });
 
   return (

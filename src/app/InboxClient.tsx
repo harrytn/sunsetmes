@@ -3,10 +3,11 @@
 /**
  * app/InboxClient.tsx
  *
- * Client-side inbox view with:
+ * Client-side inbox & outbox view with:
+ * - Tab switching between Inbox (received) and Outbox (sent)
  * - Daily check-in (auto-calls /api/economy/check-in on mount)
- * - Daily Question Widget
- * - Envelope grid (inbox/outbox tabs)
+ * - Daily Question Widget & Past Question Archive
+ * - Realistic Envelope Cards with stamps & sender/recipient badges
  * - RETURNED letter badges in outbox
  * - User switcher, key backup, notification prompt
  */
@@ -21,7 +22,7 @@ import DailyQuestionWidget from '@/components/DailyQuestionWidget';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface SenderInfo {
+interface UserProfileInfo {
   id: string;
   name: string;
   avatarColor: string;
@@ -29,6 +30,8 @@ interface SenderInfo {
 
 interface LetterSummary {
   id: string;
+  senderId: string;
+  recipientId: string;
   title: string;
   paperStyle: string;
   waxSealColor: string;
@@ -42,7 +45,8 @@ interface LetterSummary {
   pigeonNote: string | null;
   destAddress: string | null;
   createdAt: string;
-  sender: SenderInfo;
+  sender: UserProfileInfo;
+  recipient: UserProfileInfo;
 }
 
 interface UserInfo {
@@ -82,6 +86,35 @@ function deliveryIcon(type: LetterSummary['deliveryType']) {
   return '✉️';
 }
 
+// ─── Mini Postage Stamp for Cards ────────────────────────────────────────────
+
+function MiniStamp({ senderName }: { senderName: string }) {
+  const isSun = senderName.toLowerCase().includes('sun') || !senderName.toLowerCase().includes('moon');
+
+  return (
+    <div
+      className="w-9 h-11 rounded-[2px] p-0.5 shadow-sm flex flex-col justify-between items-center relative overflow-hidden"
+      style={{
+        background: isSun
+          ? 'linear-gradient(135deg, #FF6B4A 0%, #FFA834 100%)'
+          : 'linear-gradient(135deg, #2B4162 0%, #5E7EA8 100%)',
+        border: '1.5px dashed rgba(253, 245, 230, 0.85)',
+      }}
+    >
+      <div className="w-full flex justify-between text-[5px] font-sans font-bold text-[#FDF5E6]/90 px-0.5 leading-none">
+        <span>{isSun ? 'SUN' : 'MOON'}</span>
+        <span>50¢</span>
+      </div>
+      <span className="text-[11px] leading-none my-auto">
+        {isSun ? '☀️' : '🌙'}
+      </span>
+      <div className="w-full text-center text-[4.5px] font-sans font-bold text-[#FDF5E6]/80 border-t border-[#FDF5E6]/30 leading-tight">
+        AIR
+      </div>
+    </div>
+  );
+}
+
 // ─── Envelope Card ────────────────────────────────────────────────────────────
 
 function EnvelopeCard({
@@ -99,11 +132,14 @@ function EnvelopeCard({
   const isReturned = letter.status === 'RETURNED';
   const isOpened = !!letter.openedAt;
 
+  const partnerInfo = isOutbox ? letter.recipient : letter.sender;
+  const partnerLabel = isOutbox ? 'To' : 'From';
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.07, type: 'spring', stiffness: 200, damping: 22 }}
+      transition={{ delay: index * 0.05, type: 'spring', stiffness: 220, damping: 22 }}
     >
       <Link href={`/letter/${letter.id}`} className="block">
         <motion.div
@@ -115,22 +151,23 @@ function EnvelopeCard({
             boxShadow: isOpened
               ? '0 4px 16px rgba(43,65,98,0.08)'
               : '0 8px 28px rgba(43,65,98,0.14), 0 2px 6px rgba(43,65,98,0.08)',
+            border: '1px solid rgba(26,139,157,0.18)',
           }}
           whileHover={{ y: -3, boxShadow: '0 14px 40px rgba(43,65,98,0.18)' }}
           whileTap={{ scale: 0.97 }}
         >
           {/* Envelope flap */}
-          <div className="h-10 relative overflow-hidden">
-            <svg viewBox="0 0 340 40" className="w-full h-full" preserveAspectRatio="none">
+          <div className="h-9 relative overflow-hidden">
+            <svg viewBox="0 0 340 36" className="w-full h-full" preserveAspectRatio="none">
               <polygon
-                points="0,0 340,0 170,36"
+                points="0,0 340,0 170,32"
                 fill={`${letter.waxSealColor}18`}
                 stroke={`${letter.waxSealColor}40`}
                 strokeWidth="0.5"
               />
             </svg>
             <div
-              className="absolute top-1 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full flex items-center justify-center text-[10px]"
+              className="absolute top-1 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full flex items-center justify-center text-[8px]"
               style={{
                 background: letter.waxSealColor,
                 boxShadow: `0 2px 8px ${letter.waxSealColor}66`,
@@ -141,36 +178,43 @@ function EnvelopeCard({
           </div>
 
           {/* Body */}
-          <div className="px-4 pb-4 pt-1">
-            <div className="flex items-center justify-between mb-2">
+          <div className="px-4 pb-3.5 pt-1">
+            <div className="flex items-start justify-between mb-2">
               <div className="flex items-center gap-2">
                 <div
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
-                  style={{ background: letter.sender.avatarColor }}
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 shadow-sm"
+                  style={{ background: partnerInfo.avatarColor }}
                 >
-                  {letter.sender.name[0]}
+                  {partnerInfo.name[0]}
                 </div>
-                <span
-                  className="font-sans text-xs font-medium"
-                  style={{ color: 'rgba(43,65,98,0.6)' }}
-                >
-                  {letter.sender.name}
-                </span>
+                <div>
+                  <span className="font-sans text-[10px] font-medium text-gray-500 mr-1">
+                    {partnerLabel}
+                  </span>
+                  <span className="font-sans text-xs font-semibold" style={{ color: '#2B4162' }}>
+                    {partnerInfo.name}
+                  </span>
+                </div>
               </div>
-              <span className="text-sm">{deliveryIcon(letter.deliveryType)}</span>
+
+              {/* Mini postage stamp & delivery type icon */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{deliveryIcon(letter.deliveryType)}</span>
+                <MiniStamp senderName={letter.sender.name} />
+              </div>
             </div>
 
             {/* Title */}
             <h3
-              className="font-serif text-base font-semibold leading-tight mb-2 line-clamp-2"
-              style={{ color: '#2B4162', opacity: isLocked ? 0.5 : 1 }}
+              className="font-serif text-base font-semibold leading-tight mb-2.5 line-clamp-2"
+              style={{ color: '#2B4162', opacity: isLocked && !isOutbox ? 0.6 : 1 }}
             >
-              {isLocked
-                ? '· · ·'
+              {isLocked && !isOutbox
+                ? '· · · (Locked until delivery)'
                 : isLost
                   ? '⚠️ Lost in transit'
                   : isReturned
-                    ? `🐦💨 ${letter.title}`
+                    ? `🐦💨 Returned: ${letter.title}`
                     : letter.title}
             </h3>
 
@@ -178,35 +222,42 @@ function EnvelopeCard({
             <div className="flex items-center justify-between">
               {isLocked ? (
                 <span
-                  className="font-sans text-xs px-2 py-0.5 rounded-full"
+                  className="font-sans text-xs px-2.5 py-0.5 rounded-full"
                   style={{ background: 'rgba(26,139,157,0.1)', color: '#1A8B9D' }}
                 >
-                  ⏳ {formatCountdown(ms)}
+                  ⏳ {isOutbox ? `In flight (${formatCountdown(ms)})` : formatCountdown(ms)}
                 </span>
               ) : isReturned ? (
                 <span
-                  className="font-sans text-xs px-2 py-0.5 rounded-full"
-                  style={{ background: 'rgba(255,81,47,0.1)', color: '#C0391B' }}
+                  className="font-sans text-xs px-2.5 py-0.5 rounded-full font-medium"
+                  style={{ background: 'rgba(255,81,47,0.12)', color: '#C0391B' }}
                 >
-                  🐦 Returned
+                  🐦 Returned (+75 coins)
                 </span>
               ) : isLost ? (
                 <span
-                  className="font-sans text-xs px-2 py-0.5 rounded-full"
+                  className="font-sans text-xs px-2.5 py-0.5 rounded-full"
                   style={{ background: 'rgba(255,81,47,0.1)', color: '#C0391B' }}
                 >
-                  💨 Pigeon lost
+                  💨 Lost
                 </span>
               ) : isOpened ? (
                 <span
-                  className="font-sans text-xs px-2 py-0.5 rounded-full"
+                  className="font-sans text-xs px-2.5 py-0.5 rounded-full"
                   style={{ background: 'rgba(43,65,98,0.06)', color: 'rgba(43,65,98,0.45)' }}
                 >
                   ✓ Opened
                 </span>
+              ) : isOutbox ? (
+                <span
+                  className="font-sans text-xs px-2.5 py-0.5 rounded-full font-medium"
+                  style={{ background: 'rgba(26,139,157,0.12)', color: '#1A8B9D' }}
+                >
+                  📬 Delivered
+                </span>
               ) : (
                 <span
-                  className="font-sans text-xs px-2 py-0.5 rounded-full font-semibold"
+                  className="font-sans text-xs px-2.5 py-0.5 rounded-full font-semibold"
                   style={{ background: '#FF512F', color: 'white' }}
                 >
                   ✉ New
@@ -215,7 +266,7 @@ function EnvelopeCard({
 
               <span
                 className="font-sans text-[10px]"
-                style={{ color: 'rgba(43,65,98,0.35)' }}
+                style={{ color: 'rgba(43,65,98,0.4)' }}
               >
                 {new Date(letter.createdAt).toLocaleDateString(undefined, {
                   month: 'short',
@@ -237,7 +288,17 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
   const [showKeyBackup, setShowKeyBackup] = useState(false);
   const [coins, setCoins] = useState(activeUser.pigeonCoins);
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
-  const unread = letters.filter((l) => !l.openedAt && l.status === 'DELIVERED').length;
+
+  // Filter letters for Inbox vs Outbox
+  const inboxLetters = letters.filter(
+    (l) => l.recipientId === activeUser.id && l.status !== 'RETURNED'
+  );
+  const outboxLetters = letters.filter(
+    (l) => l.senderId === activeUser.id
+  );
+
+  const displayedLetters = tab === 'inbox' ? inboxLetters : outboxLetters;
+  const unread = inboxLetters.filter((l) => !l.openedAt && l.status === 'DELIVERED').length;
 
   // Auto daily check-in on mount
   useEffect(() => {
@@ -249,7 +310,6 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
           if (!data.alreadyCheckedIn && data.granted) {
             setCoins(data.pigeonCoins);
             setCheckinMessage(data.message);
-            // Auto-dismiss after 4 seconds
             setTimeout(() => setCheckinMessage(null), 4000);
           } else {
             setCoins(data.pigeonCoins);
@@ -285,7 +345,7 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
           </div>
           <div className="flex items-center gap-2">
             {/* Coin display */}
-            <div className="flex items-center gap-1 px-2 py-1 rounded-full glass">
+            <div className="flex items-center gap-1 px-2.5 py-1 rounded-full glass">
               <span style={{ fontSize: 11 }}>🐦</span>
               <span className="font-sans text-xs font-bold" style={{ color: '#2B4162' }}>
                 {coins}
@@ -320,7 +380,7 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
           )}
         </AnimatePresence>
 
-        {/* Tab bar */}
+        {/* Tab bar (Inbox / Outbox) */}
         <div
           className="relative z-10 flex px-4 pt-2 pb-0 gap-1"
           style={{
@@ -329,27 +389,39 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
             WebkitBackdropFilter: 'blur(20px)',
           }}
         >
-          {(['inbox', 'outbox'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className="relative flex-1 py-2 font-sans text-sm font-medium capitalize rounded-t-lg transition-colors"
-              style={{
-                color: tab === t ? '#1A8B9D' : 'rgba(43,65,98,0.45)',
-              }}
-              aria-selected={tab === t}
-              role="tab"
-            >
-              {t}
-              {tab === t && (
-                <motion.div
-                  className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full"
-                  style={{ background: '#1A8B9D' }}
-                  layoutId="tab-indicator"
-                />
-              )}
-            </button>
-          ))}
+          {(['inbox', 'outbox'] as const).map((t) => {
+            const count = t === 'inbox' ? inboxLetters.length : outboxLetters.length;
+            return (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className="relative flex-1 py-2 font-sans text-sm font-semibold capitalize rounded-t-lg transition-colors flex items-center justify-center gap-1.5"
+                style={{
+                  color: tab === t ? '#1A8B9D' : 'rgba(43,65,98,0.5)',
+                }}
+                aria-selected={tab === t}
+                role="tab"
+              >
+                <span>{t}</span>
+                <span
+                  className="text-[10px] px-1.5 py-0.2 rounded-full font-mono"
+                  style={{
+                    background: tab === t ? 'rgba(26,139,157,0.15)' : 'rgba(43,65,98,0.08)',
+                    color: tab === t ? '#1A8B9D' : 'rgba(43,65,98,0.45)',
+                  }}
+                >
+                  {count}
+                </span>
+                {tab === t && (
+                  <motion.div
+                    className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full"
+                    style={{ background: '#1A8B9D' }}
+                    layoutId="tab-indicator"
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
       </header>
 
@@ -377,42 +449,44 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
         {/* Notification prompt */}
         <NotificationPrompt />
 
-        {/* Daily Question Widget */}
+        {/* Daily Question Widget & History */}
         <DailyQuestionWidget />
 
         <div className="px-4">
         <AnimatePresence mode="wait">
-          {letters.length === 0 ? (
+          {displayedLetters.length === 0 ? (
             <motion.div
-              key="empty"
-              className="flex flex-col items-center justify-center py-20 text-center"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              key={tab === 'inbox' ? 'empty-inbox' : 'empty-outbox'}
+              className="flex flex-col items-center justify-center py-16 text-center"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
             >
-              <div className="text-6xl mb-4">📭</div>
+              <div className="text-5xl mb-3">{tab === 'inbox' ? '📭' : '✉️'}</div>
               <h2
-                className="font-serif text-xl font-semibold mb-2"
+                className="font-serif text-lg font-semibold mb-1"
                 style={{ color: '#2B4162' }}
               >
-                No letters yet
+                {tab === 'inbox' ? 'No letters received yet' : 'No letters sent yet'}
               </h2>
               <p
-                className="font-sans text-sm max-w-xs"
+                className="font-sans text-xs max-w-xs"
                 style={{ color: 'rgba(43,65,98,0.55)' }}
               >
-                Write your first letter and choose a delivery method.
+                {tab === 'inbox'
+                  ? 'Letters sent to you by Sun or Moon will arrive here.'
+                  : 'Tap the compose button below to write your first letter.'}
               </p>
             </motion.div>
           ) : (
             <motion.div
-              key="grid"
+              key={tab}
               className="grid gap-3"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
             >
-              {letters.map((letter, i) => (
+              {displayedLetters.map((letter, i) => (
                 <EnvelopeCard
                   key={letter.id}
                   letter={letter}

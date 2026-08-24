@@ -171,28 +171,39 @@ export interface EncryptedLetterPayload {
 }
 
 /**
- * Encrypt a letter's content for a given recipient.
+ * Encrypt a letter's content and optional addresses for a given recipient.
  *
  * @param content          Plaintext letter body
  * @param recipientPubJwk  JWK string of the recipient's RSA public key
  * @param senderKeypair    The sender's CryptoKeyPair (from IDB)
+ * @param addressFrom      Optional sender return address
+ * @param addressTo        Optional recipient destination address
  */
 export async function encryptLetter(
   content: string,
   recipientPubJwk: string,
   senderKeypair: CryptoKeyPair,
+  addressFrom?: string,
+  addressTo?: string,
 ): Promise<EncryptedLetterPayload> {
   // 1. Generate ephemeral AES-GCM key
   const aesKey = await generateAesKey();
 
-  // 2. Encrypt content
-  const { ciphertext: encryptedContent, iv } = await aesEncrypt(aesKey, content);
+  // 2. Package payload as JSON containing content, addressFrom, and addressTo
+  const payloadData = JSON.stringify({
+    content,
+    addressFrom: addressFrom?.trim() || '',
+    addressTo: addressTo?.trim() || '',
+  });
 
-  // 3. Import recipient public key and wrap AES key for them
+  // 3. Encrypt payload
+  const { ciphertext: encryptedContent, iv } = await aesEncrypt(aesKey, payloadData);
+
+  // 4. Import recipient public key and wrap AES key for them
   const recipientPubKey = await importPublicKeyJwk(recipientPubJwk);
   const encryptedKeyRecipient = await wrapAesKey(aesKey, recipientPubKey);
 
-  // 4. Wrap AES key for sender (so they can also read their own letter)
+  // 5. Wrap AES key for sender (so they can also read their own letter)
   const encryptedKeySender = await wrapAesKey(aesKey, senderKeypair.publicKey);
 
   return {
@@ -204,7 +215,7 @@ export async function encryptLetter(
 }
 
 /**
- * Decrypt a letter's content.
+ * Decrypt a letter's content and addresses.
  *
  * @param payload      The encrypted fields from the database
  * @param privateKey   The current user's RSA private key (from IDB)
@@ -214,7 +225,7 @@ export async function decryptLetter(
   payload: EncryptedLetterPayload,
   privateKey: CryptoKey,
   isRecipient: boolean,
-): Promise<{ content: string }> {
+): Promise<{ content: string; addressFrom?: string; addressTo?: string }> {
   // 1. Choose the wrapped key for this user's role
   const wrappedKey = isRecipient
     ? payload.encryptedKeyRecipient
@@ -224,9 +235,23 @@ export async function decryptLetter(
   const aesKey = await unwrapAesKey(wrappedKey, privateKey);
 
   // 3. Decrypt content
-  const content = await aesDecrypt(aesKey, payload.encryptedContent, payload.iv);
+  const decryptedRaw = await aesDecrypt(aesKey, payload.encryptedContent, payload.iv);
 
-  return { content };
+  // 4. Parse JSON if available, otherwise return raw content (backwards compatibility)
+  try {
+    const parsed = JSON.parse(decryptedRaw);
+    if (typeof parsed === 'object' && parsed !== null && 'content' in parsed) {
+      return {
+        content: parsed.content || '',
+        addressFrom: parsed.addressFrom || '',
+        addressTo: parsed.addressTo || '',
+      };
+    }
+  } catch {
+    // Legacy plaintext letter body
+  }
+
+  return { content: decryptedRaw };
 }
 
 // ─── Passphrase-derived key backup ───────────────────────────────────────────

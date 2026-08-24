@@ -1,9 +1,3 @@
 {
-  "version": 2,
-  "crons": [
-    {
-      "path": "/api/cron/check-deliveries",
-      "schedule": "*/5 * * * *"
-    }
-  ]
+  "version": 2
 }

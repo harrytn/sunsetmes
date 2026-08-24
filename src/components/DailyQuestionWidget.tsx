@@ -12,6 +12,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import QuestionHistoryModal from './QuestionHistoryModal';
 
 interface QuestionData {
   question: { id: string; text: string; date: string };
@@ -28,6 +29,7 @@ export default function DailyQuestionWidget() {
   const [submitting, setSubmitting] = useState(false);
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
   const [rewardInfo, setRewardInfo] = useState<{ grade: number; reward: number; partnerName: string } | null>(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   const fetchQuestion = useCallback(async () => {
     try {
@@ -112,15 +114,33 @@ export default function DailyQuestionWidget() {
         transition={{ type: 'spring', stiffness: 200, damping: 22 }}
       >
         {/* Header bar */}
-        <div className="px-4 pt-3 pb-2 flex items-center gap-2">
-          <span className="text-lg">💭</span>
-          <span
-            className="font-sans text-[10px] font-bold tracking-widest uppercase"
-            style={{ color: 'rgba(43,65,98,0.5)' }}
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">💭</span>
+            <span
+              className="font-sans text-[10px] font-bold tracking-widest uppercase"
+              style={{ color: 'rgba(43,65,98,0.5)' }}
+            >
+              Daily Question
+            </span>
+          </div>
+
+          <motion.button
+            onClick={() => setShowHistoryModal(true)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-sans font-medium glass cursor-pointer"
+            style={{ color: '#2B4162' }}
+            whileTap={{ scale: 0.94 }}
+            title="View past question memories"
           >
-            Daily Question
-          </span>
+            <span>📜</span> Past Questions
+          </motion.button>
         </div>
+
+        {/* Question History Modal */}
+        <QuestionHistoryModal
+          isOpen={showHistoryModal}
+          onClose={() => setShowHistoryModal(false)}
+        />
 
         {/* Question text */}
         <div className="px-4 pb-3">

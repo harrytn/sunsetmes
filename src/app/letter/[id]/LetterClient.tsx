@@ -67,6 +67,8 @@ export default function LetterClient({
 
   const [decryptState, setDecryptState] = useState<DecryptState>('idle');
   const [decryptedContent, setDecryptedContent] = useState<string | null>(null);
+  const [decryptedAddressFrom, setDecryptedAddressFrom] = useState<string | undefined>(undefined);
+  const [decryptedAddressTo, setDecryptedAddressTo] = useState<string | undefined>(undefined);
   const [decryptError, setDecryptError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,13 +95,15 @@ export default function LetterClient({
           encryptedKeySender: letter.encryptedKeySender ?? '',
         };
 
-        const { content } = await decryptLetter(
+        const { content, addressFrom, addressTo } = await decryptLetter(
           payload,
           keypair!.privateKey,
           isRecipient,
         );
 
         setDecryptedContent(content);
+        setDecryptedAddressFrom(addressFrom);
+        setDecryptedAddressTo(addressTo);
         setDecryptState('done');
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -226,6 +230,9 @@ export default function LetterClient({
             status={letter.status}
             locked={locked}
             senderName={letter.sender.name}
+            recipientName={letter.recipient.name}
+            addressFrom={decryptedAddressFrom}
+            addressTo={decryptedAddressTo}
             title={letter.title}
             waxSealColor={letter.waxSealColor}
             deliveryType={letter.deliveryType}

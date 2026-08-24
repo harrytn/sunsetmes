@@ -52,6 +52,8 @@ export default function ComposeClient({ activeUserId, recipients, pigeonCoins }:
 
   const [recipientId, setRecipientId] = useState(recipients[0]?.id ?? '');
   const [title, setTitle] = useState('');
+  const [addressFrom, setAddressFrom] = useState('');
+  const [addressTo, setAddressTo] = useState('');
   const [content, setContent] = useState('');
   const [deliveryType, setDeliveryType] = useState<DeliveryType>('STANDARD');
   const [pigeonData, setPigeonData] = useState<PigeonData | null>(null);
@@ -99,11 +101,13 @@ export default function ComposeClient({ activeUserId, recipients, pigeonCoins }:
       }
       const { publicKey: recipientPubJwk } = (await pkRes.json()) as { publicKey: string };
 
-      // Step 2: Encrypt the letter client-side
+      // Step 2: Encrypt the letter client-side (including addresses)
       const encrypted = await encryptLetter(
         content.trim(),
         recipientPubJwk,
         keypair,
+        addressFrom.trim(),
+        addressTo.trim(),
       );
 
       // Step 3: Build POST body
@@ -284,6 +288,64 @@ export default function ComposeClient({ activeUserId, recipients, pigeonCoins }:
             style={{ background: 'rgba(253,245,230,0.7)', color: '#2B4162', borderColor: 'rgba(26,139,157,0.25)' }}
             maxLength={120}
           />
+        </div>
+
+        {/* Envelope Addresses (Physical Cover) */}
+        <div
+          className="rounded-2xl p-4 space-y-3"
+          style={{
+            background: 'rgba(253,245,230,0.6)',
+            border: '1px solid rgba(26,139,157,0.2)',
+          }}
+        >
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-sm">✉️</span>
+            <span className="font-sans text-xs font-bold uppercase tracking-wider" style={{ color: '#2B4162' }}>
+              Envelope Cover Addresses
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label
+                className="font-sans text-[11px] font-semibold tracking-wide uppercase mb-1 block"
+                style={{ color: 'rgba(43,65,98,0.55)' }}
+                htmlFor="address-from"
+              >
+                From Address (Return)
+              </label>
+              <input
+                id="address-from"
+                type="text"
+                value={addressFrom}
+                onChange={(e) => setAddressFrom(e.target.value)}
+                placeholder="e.g. Sun's Solarium, High Peak"
+                className="w-full px-3.5 py-2.5 rounded-xl font-serif text-sm outline-none border"
+                style={{ background: 'rgba(253,245,230,0.9)', color: '#2B4162', borderColor: 'rgba(26,139,157,0.25)' }}
+                maxLength={100}
+              />
+            </div>
+
+            <div>
+              <label
+                className="font-sans text-[11px] font-semibold tracking-wide uppercase mb-1 block"
+                style={{ color: 'rgba(43,65,98,0.55)' }}
+                htmlFor="address-to"
+              >
+                To Address (Destination)
+              </label>
+              <input
+                id="address-to"
+                type="text"
+                value={addressTo}
+                onChange={(e) => setAddressTo(e.target.value)}
+                placeholder="e.g. Moon's Cozy Bedroom"
+                className="w-full px-3.5 py-2.5 rounded-xl font-serif text-sm outline-none border"
+                style={{ background: 'rgba(253,245,230,0.9)', color: '#2B4162', borderColor: 'rgba(26,139,157,0.25)' }}
+                maxLength={100}
+              />
+            </div>
+          </div>
         </div>
 
         {/* Content */}
