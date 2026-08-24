@@ -5,9 +5,13 @@
  *
  * Slide-over / Modal view displaying all past completed Daily Questions
  * with Sun's and Moon's answers displayed side-by-side.
+ *
+ * Uses createPortal & z-[100] to ensure it always renders at root level
+ * above all sticky headers, cards, and animations.
  */
 
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface AnswerHistory {
@@ -37,6 +41,11 @@ interface Props {
 export default function QuestionHistoryModal({ isOpen, onClose }: Props) {
   const [history, setHistory] = useState<QuestionHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -55,14 +64,14 @@ export default function QuestionHistoryModal({ isOpen, onClose }: Props) {
       });
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
+  const modalContent = (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
         {/* Backdrop */}
         <motion.div
-          className="fixed inset-0 bg-[#2B4162]/40 backdrop-blur-md"
+          className="fixed inset-0 bg-[#2B4162]/50 backdrop-blur-md z-[100]"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -71,15 +80,16 @@ export default function QuestionHistoryModal({ isOpen, onClose }: Props) {
 
         {/* Modal Window */}
         <motion.div
-          className="relative w-full max-w-lg max-h-[85vh] flex flex-col rounded-3xl overflow-hidden glass shadow-2xl"
+          className="relative w-full max-w-lg max-h-[85vh] flex flex-col rounded-3xl overflow-hidden glass shadow-2xl z-[101]"
           style={{
-            background: 'linear-gradient(155deg, rgba(253,245,230,0.96) 0%, rgba(245,237,216,0.94) 100%)',
-            border: '1px solid rgba(26,139,157,0.3)',
+            background: 'linear-gradient(155deg, rgba(253,245,230,0.98) 0%, rgba(245,237,216,0.96) 100%)',
+            border: '1px solid rgba(26,139,157,0.35)',
+            boxShadow: '0 25px 60px -15px rgba(43, 65, 98, 0.4)',
           }}
-          initial={{ scale: 0.9, opacity: 0, y: 20 }}
+          initial={{ scale: 0.92, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
-          exit={{ scale: 0.9, opacity: 0, y: 20 }}
-          transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+          exit={{ scale: 0.92, opacity: 0, y: 20 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 24 }}
         >
           {/* Header */}
           <div
@@ -149,7 +159,7 @@ export default function QuestionHistoryModal({ isOpen, onClose }: Props) {
                     key={item.id}
                     className="p-4 rounded-2xl paper-texture shadow-sm"
                     style={{
-                      background: 'rgba(255, 255, 255, 0.7)',
+                      background: 'rgba(255, 255, 255, 0.75)',
                       border: '1px solid rgba(26,139,157,0.18)',
                     }}
                     initial={{ opacity: 0, y: 12 }}
@@ -193,7 +203,7 @@ export default function QuestionHistoryModal({ isOpen, onClose }: Props) {
                               <div className="flex items-center justify-between mb-1.5">
                                 <div className="flex items-center gap-1.5">
                                   <div
-                                    className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
+                                    className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm"
                                     style={{ background: ans.user.avatarColor }}
                                   >
                                     {ans.user.name[0]}
@@ -227,4 +237,6 @@ export default function QuestionHistoryModal({ isOpen, onClose }: Props) {
       </div>
     </AnimatePresence>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : null;
 }
