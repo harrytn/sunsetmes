@@ -153,7 +153,7 @@ model PushSubscription {
 model DailyQuestion {
   id      String   @id @default(cuid())
   date    DateTime @unique  // Calendar day (start of UTC day, e.g. 2026-08-19T00:00:00Z)
-  text    String
+  text    String   @db.Text
   answers Answer[]
 
   createdAt DateTime @default(now())
@@ -163,7 +163,7 @@ model Answer {
   id         String @id @default(cuid())
   questionId String
   userId     String
-  text       String
+  text       String @db.Text
   grade      Int?   // 0–5, assigned by the partner
 
   question DailyQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)

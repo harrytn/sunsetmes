@@ -38,29 +38,11 @@ export async function GET(
     return NextResponse.json({ error: 'Forbidden.' }, { status: 403 });
   }
 
-  // RETURNED letters: only the sender can view
-  if (letter.status === 'RETURNED' && letter.recipientId === userId) {
-    return NextResponse.json({ error: 'This letter was returned to sender.' }, { status: 403 });
-  }
-
-  const now = new Date();
-  const isDelivered = letter.deliverAt <= now;
   const isRecipient = letter.recipientId === userId;
 
-  // Server-side payload lock: strip content while in-flight for recipient
-  if (!isDelivered && isRecipient) {
-    const {
-      encryptedContent: _ec,
-      encryptedKeyRecipient: _ekr,
-      ...meta
-    } = letter;
-    void _ec; void _ekr;
-    return NextResponse.json({
-      ...meta,
-      locked: true,
-      encryptedContent: null,
-      encryptedKeyRecipient: null,
-    });
+  // True Blind Delivery: recipient cannot see or query letters that are not yet DELIVERED
+  if (isRecipient && letter.status !== 'DELIVERED') {
+    return NextResponse.json({ error: 'Letter not found.' }, { status: 404 });
   }
 
   return NextResponse.json({ ...letter, locked: false });

@@ -289,9 +289,9 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
   const [coins, setCoins] = useState(activeUser.pigeonCoins);
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
 
-  // Filter letters for Inbox vs Outbox
+  // Filter letters for Inbox vs Outbox (Inbox: DELIVERED only for true blind delivery)
   const inboxLetters = letters.filter(
-    (l) => l.recipientId === activeUser.id && l.status !== 'RETURNED'
+    (l) => l.recipientId === activeUser.id && l.status === 'DELIVERED'
   );
   const outboxLetters = letters.filter(
     (l) => l.senderId === activeUser.id

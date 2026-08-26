@@ -220,7 +220,7 @@ export default function QuestionHistoryModal({ isOpen, onClose }: Props) {
                                 )}
                               </div>
 
-                              <p className="font-sans text-xs leading-relaxed" style={{ color: 'rgba(43,65,98,0.85)' }}>
+                              <p className="font-sans text-xs leading-relaxed whitespace-pre-wrap break-words" style={{ color: 'rgba(43,65,98,0.85)' }}>
                                 {ans.text}
                               </p>
                             </div>

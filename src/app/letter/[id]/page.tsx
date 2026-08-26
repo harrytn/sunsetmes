@@ -49,15 +49,15 @@ export default async function LetterPage({
     redirect('/');
   }
 
-  // If letter is RETURNED, only sender may view it
-  if (letter.status === 'RETURNED' && letter.recipientId === activeUser.id) {
-    redirect('/');
-  }
-
   const now = new Date();
   const isRecipient = letter.recipientId === activeUser.id;
   const isDelivered = letter.deliverAt <= now;
-  const locked = isRecipient && !isDelivered;
+  const locked = !isDelivered;
+
+  // If letter is RETURNED or IN_FLIGHT, recipient may not view it (True Blind Delivery)
+  if (isRecipient && letter.status !== 'DELIVERED') {
+    redirect('/');
+  }
 
   // Mark as opened on first view by recipient after delivery
   if (isRecipient && isDelivered && !letter.openedAt && letter.status === 'DELIVERED') {
@@ -67,23 +67,13 @@ export default async function LetterPage({
     });
   }
 
-  // Strip encrypted payload fields that the recipient cannot yet decrypt
-  const letterPayload = locked
-    ? {
-        ...letter,
-        encryptedContent: null,
-        encryptedKeyRecipient: null,
-        // encryptedKeySender is kept — sender can preview their locked letter
-      }
-    : letter;
-
-  const msUntilDelivery = locked
-    ? Math.max(0, letter.deliverAt.getTime() - now.getTime())
-    : 0;
+  const msUntilDelivery = isRecipient
+    ? 0
+    : Math.max(0, letter.deliverAt.getTime() - now.getTime());
 
   return (
     <LetterClient
-      letter={JSON.parse(JSON.stringify(letterPayload))}
+      letter={JSON.parse(JSON.stringify(letter))}
       activeUserId={activeUser.id}
       locked={locked}
       msUntilDelivery={msUntilDelivery}

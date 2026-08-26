@@ -57,11 +57,11 @@ export default async function HomePage() {
     orderBy: { name: "asc" },
   });
 
-  // ── Fetch letters for both Inbox and Outbox (NO content fields) ────────
+  // ── Fetch letters: DELIVERED only for recipient (blind delivery), all for sender ──
   const letters = await prisma.letter.findMany({
     where: {
       OR: [
-        { recipientId: activeUser.id, status: { not: 'RETURNED' } },
+        { recipientId: activeUser.id, status: 'DELIVERED' },
         { senderId: activeUser.id },
       ],
     },

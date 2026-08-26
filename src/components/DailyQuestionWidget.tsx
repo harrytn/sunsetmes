@@ -163,16 +163,15 @@ export default function DailyQuestionWidget() {
               <textarea
                 value={answerText}
                 onChange={(e) => setAnswerText(e.target.value)}
-                placeholder="Your answer…"
-                className="w-full px-3 py-2.5 rounded-xl font-sans text-sm outline-none resize-none border"
+                placeholder="Write your answer (no character limit)…"
+                className="w-full px-3.5 py-3 rounded-xl font-sans text-sm outline-none resize-y border"
                 style={{
-                  background: 'rgba(253,245,230,0.8)',
+                  background: 'rgba(253,245,230,0.85)',
                   color: '#2B4162',
-                  borderColor: 'rgba(26,139,157,0.2)',
-                  minHeight: 72,
+                  borderColor: 'rgba(26,139,157,0.25)',
+                  minHeight: 84,
                 }}
-                rows={3}
-                maxLength={500}
+                rows={4}
               />
               <motion.button
                 className="mt-2 w-full py-2.5 rounded-xl font-sans text-sm font-semibold text-white"
@@ -212,14 +211,14 @@ export default function DailyQuestionWidget() {
               </div>
               {data.myAnswer && (
                 <div
-                  className="mt-1 px-3 py-2 rounded-lg"
-                  style={{ background: 'rgba(26,139,157,0.06)' }}
+                  className="mt-1 px-3.5 py-2.5 rounded-xl"
+                  style={{ background: 'rgba(26,139,157,0.06)', border: '1px solid rgba(26,139,157,0.12)' }}
                 >
                   <p className="font-sans text-[10px] font-semibold uppercase tracking-wider mb-1"
                     style={{ color: 'rgba(43,65,98,0.4)' }}>
                     Your answer
                   </p>
-                  <p className="font-sans text-xs italic" style={{ color: 'rgba(43,65,98,0.6)' }}>
+                  <p className="font-sans text-xs italic whitespace-pre-wrap break-words max-h-48 overflow-y-auto" style={{ color: 'rgba(43,65,98,0.75)' }}>
                     &ldquo;{data.myAnswer.text}&rdquo;
                   </p>
                 </div>
@@ -237,14 +236,14 @@ export default function DailyQuestionWidget() {
               className="px-4 pb-4"
             >
               <div
-                className="px-3 py-3 rounded-xl mb-3"
-                style={{ background: 'rgba(253,245,230,0.7)', border: '1px solid rgba(26,139,157,0.15)' }}
+                className="px-3.5 py-3 rounded-xl mb-3"
+                style={{ background: 'rgba(253,245,230,0.85)', border: '1px solid rgba(26,139,157,0.2)' }}
               >
                 <p className="font-sans text-[10px] font-semibold uppercase tracking-wider mb-1"
                   style={{ color: 'rgba(43,65,98,0.4)' }}>
                   {partnerName}&apos;s answer
                 </p>
-                <p className="font-serif text-sm leading-relaxed" style={{ color: '#2B4162' }}>
+                <p className="font-serif text-sm leading-relaxed whitespace-pre-wrap break-words max-h-60 overflow-y-auto" style={{ color: '#2B4162' }}>
                   &ldquo;{data.partnerAnswer.text}&rdquo;
                 </p>
               </div>

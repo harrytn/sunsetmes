@@ -68,11 +68,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ letters });
   }
 
-  // Inbox: exclude RETURNED letters (only sender sees those in outbox)
+  // Inbox: only DELIVERED letters (True Blind Delivery - hides in-flight letters)
   const letters = await prisma.letter.findMany({
     where: {
       recipientId: userId,
-      status: { not: LetterStatus.RETURNED },
+      status: LetterStatus.DELIVERED,
     },
     select: letterSelect,
     orderBy: { deliverAt: 'asc' },
