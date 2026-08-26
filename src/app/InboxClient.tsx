@@ -8,7 +8,7 @@
  * - Daily check-in (auto-calls /api/economy/check-in on mount)
  * - Daily Question Widget & Past Question Archive
  * - Realistic Envelope Cards with stamps & sender/recipient badges
- * - RETURNED letter badges in outbox
+ * - Resend action for RETURNED pigeon letters in Outbox
  * - User switcher, key backup, notification prompt
  */
 
@@ -121,10 +121,14 @@ function EnvelopeCard({
   letter,
   index,
   isOutbox,
+  onResend,
+  isResending,
 }: {
   letter: LetterSummary;
   index: number;
   isOutbox?: boolean;
+  onResend?: (letterId: string) => void;
+  isResending?: boolean;
 }) {
   const ms = msUntilDelivery(letter.deliverAt);
   const isLocked = ms > 0 && letter.status === 'IN_FLIGHT';
@@ -232,7 +236,7 @@ function EnvelopeCard({
                   className="font-sans text-xs px-2.5 py-0.5 rounded-full font-medium"
                   style={{ background: 'rgba(255,81,47,0.12)', color: '#C0391B' }}
                 >
-                  🐦 Returned (+75 coins)
+                  🐦 Returned (+75 refunded)
                 </span>
               ) : isLost ? (
                 <span
@@ -274,6 +278,46 @@ function EnvelopeCard({
                 })}
               </span>
             </div>
+
+            {/* Resend button for Returned pigeon letters in Outbox */}
+            {isOutbox && isReturned && onResend && (
+              <div className="mt-3 pt-2.5 border-t border-[rgba(255,81,47,0.18)] flex items-center justify-between">
+                <span className="font-sans text-[11px] font-medium" style={{ color: '#C0391B' }}>
+                  Journey interrupted
+                </span>
+                <motion.button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onResend(letter.id);
+                  }}
+                  disabled={isResending}
+                  className="px-3.5 py-1.5 rounded-full font-sans text-xs font-bold text-white shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  style={{
+                    background: 'linear-gradient(135deg, #FF512F 0%, #F09819 100%)',
+                    boxShadow: '0 2px 8px rgba(255,81,47,0.35)',
+                  }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.94 }}
+                >
+                  {isResending ? (
+                    <>
+                      <motion.span
+                        className="w-3 h-3 rounded-full border-2 border-white border-t-transparent"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                      />
+                      <span>Dispatching…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🐦 Resend (150 🪙)</span>
+                    </>
+                  )}
+                </motion.button>
+              </div>
+            )}
           </div>
         </motion.div>
       </Link>
@@ -289,11 +333,20 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
   const [coins, setCoins] = useState(activeUser.pigeonCoins);
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
 
+  const [lettersList, setLettersList] = useState<LetterSummary[]>(letters);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [feedbackToast, setFeedbackToast] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
+
+  // Sync state if props change
+  useEffect(() => {
+    setLettersList(letters);
+  }, [letters]);
+
   // Filter letters for Inbox vs Outbox (Inbox: DELIVERED only for true blind delivery)
-  const inboxLetters = letters.filter(
+  const inboxLetters = lettersList.filter(
     (l) => l.recipientId === activeUser.id && l.status === 'DELIVERED'
   );
-  const outboxLetters = letters.filter(
+  const outboxLetters = lettersList.filter(
     (l) => l.senderId === activeUser.id
   );
 
@@ -321,6 +374,51 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
     }
     void checkIn();
   }, []);
+
+  async function handleResend(letterId: string) {
+    if (resendingId) return;
+    setResendingId(letterId);
+    setFeedbackToast(null);
+
+    try {
+      const res = await fetch(`/api/letters/${letterId}/resend`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setFeedbackToast({
+          type: 'error',
+          message: data.error ?? 'Failed to resend letter.',
+        });
+        setTimeout(() => setFeedbackToast(null), 4000);
+        return;
+      }
+
+      if (data.pigeonCoins !== undefined) {
+        setCoins(data.pigeonCoins);
+      }
+
+      // Update letter in state
+      setLettersList((prev) =>
+        prev.map((l) => (l.id === letterId ? { ...l, ...data.letter } : l)),
+      );
+
+      setFeedbackToast({
+        type: 'success',
+        message: 'Pigeon dispatched again! 🐦',
+      });
+      setTimeout(() => setFeedbackToast(null), 4000);
+    } catch {
+      setFeedbackToast({
+        type: 'error',
+        message: 'Network error while attempting to resend.',
+      });
+      setTimeout(() => setFeedbackToast(null), 4000);
+    } finally {
+      setResendingId(null);
+    }
+  }
 
   return (
     <div className="min-h-dvh flex flex-col">
@@ -446,6 +544,29 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
           )}
         </AnimatePresence>
 
+        {/* Feedback Toast for Resend / Actions */}
+        <AnimatePresence>
+          {feedbackToast && (
+            <motion.div
+              className="mx-4 mb-3 px-4 py-3 rounded-2xl text-center font-sans text-sm font-semibold shadow-md"
+              style={{
+                background:
+                  feedbackToast.type === 'error'
+                    ? 'rgba(255,81,47,0.15)'
+                    : 'linear-gradient(135deg, rgba(255,209,148,0.5) 0%, rgba(26,139,157,0.25) 100%)',
+                color: feedbackToast.type === 'error' ? '#C0391B' : '#2B4162',
+                border: `1px solid ${feedbackToast.type === 'error' ? 'rgba(255,81,47,0.3)' : 'rgba(26,139,157,0.25)'}`,
+              }}
+              initial={{ opacity: 0, y: -12, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -12, scale: 0.95 }}
+            >
+              {feedbackToast.type === 'error' ? '⚠️ ' : '🕊️ '}
+              {feedbackToast.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Notification prompt */}
         <NotificationPrompt />
 
@@ -492,6 +613,8 @@ export default function InboxClient({ activeUser, allUsers, letters }: Props) {
                   letter={letter}
                   index={i}
                   isOutbox={tab === 'outbox'}
+                  onResend={handleResend}
+                  isResending={resendingId === letter.id}
                 />
               ))}
             </motion.div>
