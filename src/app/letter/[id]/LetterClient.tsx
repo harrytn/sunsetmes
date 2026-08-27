@@ -3,24 +3,29 @@
 /**
  * app/letter/[id]/LetterClient.tsx
  *
- * Decrypts and renders a letter. Handles all statuses including RETURNED.
- * Selfie feature has been removed — all rendering is text-only.
+ * Client component for viewing a single letter.
+ * Handles client-side E2EE decryption using the active user's private key.
+ *
+ * Senders can always preview their own sent letter at any time.
+ * Recipients can view the letter once delivered (True Blind Delivery).
  */
 
 import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import Envelope3D from '@/components/Envelope3D';
+import { motion } from 'framer-motion';
 import { useCrypto } from '@/context/CryptoContext';
-import { decryptLetter, type EncryptedLetterPayload } from '@/lib/crypto-client';
+import { decryptLetter, EncryptedLetterPayload } from '@/lib/crypto-client';
+import Envelope3D from '@/components/Envelope3D';
+
+interface UserInfo {
+  id: string;
+  name: string;
+  avatarColor: string;
+}
 
 interface LetterData {
   id: string;
   title: string;
-  encryptedContent: string | null;
-  iv: string | null;
-  encryptedKeyRecipient: string | null;
-  encryptedKeySender: string | null;
   paperStyle: string;
   waxSealColor: string;
   deliveryType: 'STANDARD' | 'EXPRESS' | 'PIGEON';
@@ -32,8 +37,13 @@ interface LetterData {
   pigeonSurvived: boolean | null;
   pigeonNote: string | null;
   destAddress: string | null;
-  sender:    { id: string; name: string; avatarColor: string };
-  recipient: { id: string; name: string; avatarColor: string };
+  createdAt: string;
+  sender: UserInfo;
+  recipient: UserInfo;
+  encryptedContent: string | null;
+  iv: string | null;
+  encryptedKeyRecipient: string | null;
+  encryptedKeySender: string | null;
 }
 
 interface Props {
@@ -55,20 +65,15 @@ function formatDate(iso: string): string {
 }
 
 export default function LetterClient({
-  letter: initialLetter,
+  letter,
   activeUserId,
-  locked: initialLocked,
-  msUntilDelivery: initialMsUntilDelivery,
+  locked,
+  msUntilDelivery,
 }: Props) {
   const router = useRouter();
   const { keypair, isReady } = useCrypto();
-  const [currentLetter, setCurrentLetter] = useState<LetterData>(initialLetter);
-  const [currentLocked, setCurrentLocked] = useState(initialLocked);
-  const [currentMsUntilDelivery, setCurrentMsUntilDelivery] = useState(initialMsUntilDelivery);
-  const [resending, setResending] = useState(false);
-  const [resendError, setResendError] = useState<string | null>(null);
 
-  const isSender = currentLetter.sender.id === activeUserId;
+  const isSender = letter.sender.id === activeUserId;
   const isRecipient = !isSender;
 
   const [decryptState, setDecryptState] = useState<DecryptState>('idle');
@@ -78,12 +83,12 @@ export default function LetterClient({
   const [decryptError, setDecryptError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isReady || !keypair || currentLocked) return;
+    if (!isReady || !keypair || locked) return;
 
     const hasRecipientPayload =
-      currentLetter.encryptedContent && currentLetter.iv && currentLetter.encryptedKeyRecipient;
+      letter.encryptedContent && letter.iv && letter.encryptedKeyRecipient;
     const hasSenderPayload =
-      currentLetter.encryptedContent && currentLetter.iv && currentLetter.encryptedKeySender;
+      letter.encryptedContent && letter.iv && letter.encryptedKeySender;
 
     const canDecrypt = isRecipient
       ? hasRecipientPayload
@@ -95,10 +100,10 @@ export default function LetterClient({
       setDecryptState('decrypting');
       try {
         const payload: EncryptedLetterPayload = {
-          encryptedContent: currentLetter.encryptedContent!,
-          iv: currentLetter.iv!,
-          encryptedKeyRecipient: currentLetter.encryptedKeyRecipient ?? '',
-          encryptedKeySender: currentLetter.encryptedKeySender ?? '',
+          encryptedContent: letter.encryptedContent!,
+          iv: letter.iv!,
+          encryptedKeyRecipient: letter.encryptedKeyRecipient ?? '',
+          encryptedKeySender: letter.encryptedKeySender ?? '',
         };
 
         const { content, addressFrom, addressTo } = await decryptLetter(
@@ -119,36 +124,7 @@ export default function LetterClient({
     }
 
     void decrypt();
-  }, [isReady, keypair, currentLocked, isRecipient]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function handleResend() {
-    if (resending) return;
-    setResending(true);
-    setResendError(null);
-
-    try {
-      const res = await fetch(`/api/letters/${currentLetter.id}/resend`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        setResendError(data.error ?? 'Failed to resend letter.');
-        return;
-      }
-
-      setCurrentLetter((prev) => ({
-        ...prev,
-        ...data.letter,
-      }));
-      const ms = Math.max(0, new Date(data.letter.deliverAt).getTime() - Date.now());
-      setCurrentMsUntilDelivery(ms);
-    } catch {
-      setResendError('Network error while resending.');
-    } finally {
-      setResending(false);
-    }
-  }
+  }, [isReady, keypair, locked, isRecipient]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-dvh flex flex-col">
@@ -174,11 +150,11 @@ export default function LetterClient({
         <div>
           <p className="font-sans text-xs" style={{ color: 'rgba(43,65,98,0.5)' }}>
             {isSender
-              ? `To ${currentLetter.recipient.name}`
-              : `From ${currentLetter.sender.name}`}
+              ? `To ${letter.recipient.name}`
+              : `From ${letter.sender.name}`}
           </p>
           <p className="font-sans text-xs font-medium" style={{ color: 'rgba(43,65,98,0.35)' }}>
-            {formatDate(currentLetter.deliverAt)}
+            {formatDate(letter.deliverAt)}
           </p>
         </div>
 
@@ -195,80 +171,29 @@ export default function LetterClient({
 
       <main className="flex-1 px-4 pt-8 pb-16 flex flex-col items-center">
 
-        {/* RETURNED banner with Resend button */}
-        {currentLetter.status === 'RETURNED' && (
-          <motion.div
-            className="w-full max-w-sm mb-6 rounded-2xl px-5 py-4 text-center"
-            style={{ background: 'rgba(255,81,47,0.08)', border: '1px solid rgba(255,81,47,0.2)' }}
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <div className="text-3xl mb-2">🐦💨</div>
-            <h2 className="font-serif text-base font-semibold mb-1" style={{ color: '#C0391B' }}>
-              Letter Returned
-            </h2>
-            <p className="font-sans text-sm mb-2" style={{ color: 'rgba(43,65,98,0.65)' }}>
-              Your pigeon couldn&apos;t complete the journey. 75 coins were refunded.
-            </p>
-            {currentLetter.pigeonNote && (
-              <p className="font-sans text-xs italic mb-3" style={{ color: 'rgba(43,65,98,0.5)' }}>
-                {currentLetter.pigeonNote}
-              </p>
-            )}
-
-            {isSender && (
-              <motion.button
-                onClick={handleResend}
-                disabled={resending}
-                className="px-4 py-2 rounded-full font-sans text-xs font-bold text-white shadow-md flex items-center justify-center gap-2 mx-auto cursor-pointer"
-                style={{
-                  background: 'linear-gradient(135deg, #FF512F 0%, #F09819 100%)',
-                  boxShadow: '0 4px 14px rgba(255,81,47,0.35)',
-                }}
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.94 }}
-              >
-                {resending ? (
-                  <>
-                    <motion.span
-                      className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent"
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-                    />
-                    <span>Dispatching Pigeon…</span>
-                  </>
-                ) : (
-                  <span>🐦 Resend Letter (150 🪙)</span>
-                )}
-              </motion.button>
-            )}
-
-            {resendError && (
-              <p className="font-sans text-xs text-red-600 mt-2 font-medium">
-                {resendError}
-              </p>
-            )}
-          </motion.div>
-        )}
-
         {/* Pigeon flight info */}
-        {currentLetter.deliveryType === 'PIGEON' &&
-          currentLetter.status === 'IN_FLIGHT' &&
-          currentLetter.distanceKm != null && (
+        {letter.deliveryType === 'PIGEON' &&
+          letter.status === 'IN_FLIGHT' &&
+          letter.distanceKm != null && (
             <motion.div
-              className="w-full max-w-sm mb-4 glass rounded-2xl px-4 py-3 flex items-center gap-3"
+              className="w-full max-w-sm mb-4 glass rounded-2xl px-4 py-3 flex flex-col gap-1"
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <span className="text-2xl">🐦</span>
-              <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🐦</span>
                 <p className="font-sans text-xs font-semibold" style={{ color: '#1A8B9D' }}>
                   Pigeon in flight
                 </p>
-                <p className="font-sans text-xs truncate" style={{ color: 'rgba(43,65,98,0.55)' }}>
-                  {Math.round(currentLetter.distanceKm).toLocaleString()} km → {currentLetter.destAddress}
-                </p>
               </div>
+              <p className="font-sans text-xs truncate" style={{ color: 'rgba(43,65,98,0.65)' }}>
+                {Math.round(letter.distanceKm).toLocaleString()} km → {letter.destAddress}
+              </p>
+              {letter.pigeonNote && (
+                <p className="font-sans text-[11px] italic mt-1" style={{ color: 'rgba(43,65,98,0.5)' }}>
+                  ☁️ {letter.pigeonNote}
+                </p>
+              )}
             </motion.div>
           )}
 
@@ -295,36 +220,37 @@ export default function LetterClient({
         {/* 3D Envelope */}
         <div className="w-full max-w-sm">
           <Envelope3D
-            status={currentLetter.status}
-            locked={currentLocked}
-            senderName={currentLetter.sender.name}
-            recipientName={currentLetter.recipient.name}
+            status={letter.status}
+            locked={locked}
+            senderName={letter.sender.name}
+            recipientName={letter.recipient.name}
             addressFrom={decryptedAddressFrom}
             addressTo={decryptedAddressTo}
-            title={currentLetter.title}
-            waxSealColor={currentLetter.waxSealColor}
-            deliveryType={currentLetter.deliveryType}
-            msUntilDelivery={currentMsUntilDelivery}
+            title={letter.title}
+            waxSealColor={letter.waxSealColor}
+            deliveryType={letter.deliveryType}
+            msUntilDelivery={msUntilDelivery}
           >
             {/* Decrypting spinner */}
             {decryptState === 'decrypting' && (
-              <div className="flex items-center justify-center py-8 gap-3">
+              <div className="flex flex-col items-center justify-center py-12 gap-3">
                 <motion.div
-                  className="w-5 h-5 rounded-full border-2"
+                  className="w-8 h-8 rounded-full border-3"
                   style={{ borderColor: '#1A8B9D', borderTopColor: 'transparent' }}
                   animate={{ rotate: 360 }}
                   transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
                 />
-                <p className="font-sans text-sm" style={{ color: 'rgba(43,65,98,0.55)' }}>
-                  Decrypting…
+                <p className="font-sans text-xs" style={{ color: 'rgba(43,65,98,0.5)' }}>
+                  Decrypting letter…
                 </p>
               </div>
             )}
 
-            {/* Decrypted letter content */}
+            {/* Decrypted content */}
             {decryptState === 'done' && decryptedContent && (
               <motion.div
-                className="whitespace-pre-wrap break-words"
+                className="font-serif text-sm leading-relaxed whitespace-pre-wrap"
+                style={{ color: '#2B4162' }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2 }}
@@ -344,12 +270,8 @@ export default function LetterClient({
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
           >
-            You sent this letter on {formatDate(currentLetter.deliverAt)}
-            {currentLetter.status === 'IN_FLIGHT'
-              ? " — it hasn't arrived yet."
-              : currentLetter.status === 'RETURNED'
-                ? ' — the pigeon returned it.'
-                : '.'}
+            You sent this letter on {formatDate(letter.deliverAt)}
+            {letter.status === 'IN_FLIGHT' ? " — it hasn't arrived yet." : '.'}
           </motion.p>
         )}
       </main>

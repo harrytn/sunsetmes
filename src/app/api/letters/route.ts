@@ -14,9 +14,7 @@ import { getActiveUserId } from '@/lib/session';
 import prisma from '@/lib/prisma';
 import {
   haversineDistanceKm,
-  flightDurationSeconds,
-  rollSurvival,
-  lostPigeonNote,
+  calculatePigeonFlight,
 } from '@/lib/haversine';
 import { DeliveryType, LetterStatus, TransactionType } from '@prisma/client';
 
@@ -236,7 +234,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ letter, cost, message: 'Express letter dispatched!' }, { status: 201 });
   }
 
-  // ── PIGEON (distance-based, 150 coins) ────────────────────────────────────
+  // ── PIGEON (distance-based with 30% chance of 25% weather delay, 150 coins) ───
   if (deliveryType === DeliveryType.PIGEON) {
     const { senderLat, senderLng, destLat, destLng, destAddress } = body;
 
@@ -248,29 +246,27 @@ export async function POST(req: NextRequest) {
     }
 
     const distanceKm = haversineDistanceKm(senderLat, senderLng, destLat, destLng);
-    const durationSec = flightDurationSeconds(distanceKm);
-    const deliverAt = new Date(now.getTime() + durationSec * 1000);
-    const { survived, rate } = rollSurvival(distanceKm);
+    const { finalDurationSec, isDelayed, pigeonNote } = calculatePigeonFlight(distanceKm);
+    const deliverAt = new Date(now.getTime() + finalDurationSec * 1000);
 
     const pigeonData = {
       senderLat, senderLng, destLat, destLng, destAddress,
       distanceKm,
-      flightDurationSec: durationSec,
-      survivalRate: rate,
+      flightDurationSec: finalDurationSec,
+      survivalRate: 1.0,
     };
 
-    // Deduct 150 coins upfront regardless of survival
+    // Deduct 150 coins upfront
     const [letter] = await prisma.$transaction([
       prisma.letter.create({
         data: {
           ...baseLetterData,
           ...pigeonData,
           deliveryType: DeliveryType.PIGEON,
-          // IN_FLIGHT for now — the cron job will resolve to DELIVERED or RETURNED
           status: LetterStatus.IN_FLIGHT,
           deliverAt,
-          pigeonSurvived: survived,
-          pigeonNote: survived ? null : lostPigeonNote(destAddress),
+          pigeonSurvived: true,
+          pigeonNote,
         },
       }),
       prisma.user.update({
@@ -292,12 +288,12 @@ export async function POST(req: NextRequest) {
         letter,
         cost,
         distanceKm,
-        flightDurationSec: durationSec,
-        survived,
-        pigeonNote: letter.pigeonNote,
-        message: survived
-          ? `Pigeon dispatched! ETA: ${formatDuration(durationSec)}.`
-          : 'Your pigeon will attempt the flight… but the odds aren\'t great.',
+        flightDurationSec: finalDurationSec,
+        isDelayed,
+        pigeonNote,
+        message: isDelayed
+          ? `Pigeon dispatched! Weather headwinds detected (ETA: ${formatDuration(finalDurationSec)}).`
+          : `Pigeon dispatched! Smooth skies ahead (ETA: ${formatDuration(finalDurationSec)}).`,
       },
       { status: 201 },
     );
