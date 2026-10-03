@@ -54,6 +54,7 @@ export default async function LetterPage({
 
   return (
     <LetterClient
+      key={`${letter.id}:${activeUser.id}`}
       letter={JSON.parse(JSON.stringify({
         ...letter,
         status: isDelivered && letter.status === 'IN_FLIGHT' ? 'DELIVERED' : letter.status,
