@@ -1,5 +1,5 @@
 // prisma/schema.prisma
-// Prisma 7 schema — Economy Overhaul + E2EE + Daily Questions
+// Prisma 7 schema — encrypted letters, daily moods, and archived questions
 
 generator client {
   provider = "prisma-client-js"
@@ -22,7 +22,7 @@ enum LetterStatus {
   DELIVERED
   DRAFT
   LOST
-  RETURNED  // Pigeon failed → letter returned to sender with partial refund
+  RETURNED  // Legacy status retained for existing letters
 }
 
 enum TransactionType {
@@ -31,7 +31,7 @@ enum TransactionType {
   DELIVERY_STANDARD   // −50 coins
   DELIVERY_EXPRESS    // −100 coins
   DELIVERY_PIGEON     // −150 coins
-  PIGEON_REFUND       // +75 coins (50% refund on pigeon failure)
+  PIGEON_REFUND       // Legacy transaction type
   FAUCET_REFILL       // Legacy faucet
   PIGEON_LOSS         // Legacy (kept for old data compat)
 }
@@ -50,11 +50,13 @@ model User {
 
   /// Tracks the last daily check-in to prevent double-granting.
   lastCheckIn DateTime?
+  lastReminderAt DateTime?
 
   sentLetters       Letter[]           @relation("SentLetters")
   receivedLetters   Letter[]           @relation("ReceivedLetters")
   transactions      Transaction[]
   answers           Answer[]
+  moods             DailyMood[]
   pushSubscriptions PushSubscription[]
 
   createdAt DateTime @default(now())
@@ -102,9 +104,9 @@ model Letter {
   destAddress       String?
   distanceKm        Float?
   flightDurationSec Int?
-  pigeonSurvived    Boolean?
+  pigeonSurvived    Boolean? // Legacy data; new flights always arrive
   pigeonNote        String?
-  survivalRate      Float?
+  survivalRate      Float?   // Legacy data; new flights calculate on-time odds
 
   transactions Transaction[]
 
@@ -113,6 +115,7 @@ model Letter {
 
   @@index([recipientId, deliverAt])
   @@index([senderId, createdAt])
+  @@index([status, deliverAt])
 }
 
 model Transaction {
@@ -174,4 +177,17 @@ model Answer {
 
   @@unique([questionId, userId])
   @@index([userId])
+}
+
+model DailyMood {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      DateTime
+  word      String   @db.VarChar(40)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, date])
+  @@index([date])
 }

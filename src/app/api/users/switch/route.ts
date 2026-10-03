@@ -10,23 +10,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setActiveUserCookie } from '@/lib/session';
 import prisma from '@/lib/prisma';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function passcodeMatches(email: string, passcode: string): boolean {
+  const expected = email === 'sun@sunset.local' ? process.env.SUN_PASSCODE
+    : email === 'moon@sunset.local' ? process.env.MOON_PASSCODE : undefined;
+  const secret = process.env.SESSION_SECRET;
+  if (!expected || !secret) return false;
+  const digest = (value: string) => createHmac('sha256', secret).update(value).digest();
+  return timingSafeEqual(digest(passcode), digest(expected));
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = (await req.json()) as { userId?: string };
+    const { userId, passcode } = (await req.json()) as { userId?: string; passcode?: string };
 
-    if (!userId || typeof userId !== 'string') {
-      return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+    if (!userId || typeof userId !== 'string' || typeof passcode !== 'string') {
+      return NextResponse.json({ error: 'Profile and passcode are required.' }, { status: 400 });
     }
 
     // Verify the user actually exists before issuing the cookie
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, email: true, avatarColor: true, pigeonCoins: true },
+      select: { id: true, name: true, email: true, avatarColor: true },
     });
 
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    if (!user || !passcodeMatches(user.email, passcode)) {
+      return NextResponse.json({ error: 'Incorrect profile or passcode.' }, { status: 401 });
     }
 
     await setActiveUserCookie(userId);

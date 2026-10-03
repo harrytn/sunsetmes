@@ -41,11 +41,16 @@ export async function GET(
   const isRecipient = letter.recipientId === userId;
 
   // True Blind Delivery: recipient cannot see or query letters that are not yet DELIVERED
-  if (isRecipient && letter.status !== 'DELIVERED') {
+  if (isRecipient && (letter.status !== 'DELIVERED' && !(letter.status === 'IN_FLIGHT' && letter.deliverAt <= new Date()))) {
     return NextResponse.json({ error: 'Letter not found.' }, { status: 404 });
   }
 
-  return NextResponse.json({ ...letter, locked: false });
+  const arrived = letter.deliverAt <= new Date();
+  return NextResponse.json({
+    ...letter,
+    status: arrived && letter.status === 'IN_FLIGHT' ? 'DELIVERED' : letter.status,
+    locked: isRecipient && !arrived,
+  });
 }
 
 export async function PATCH(
@@ -74,7 +79,7 @@ export async function PATCH(
   }
 
   const now = new Date();
-  if (letter.deliverAt > now) {
+  if (letter.deliverAt > now || !['DELIVERED', 'IN_FLIGHT'].includes(letter.status)) {
     return NextResponse.json({ error: 'Letter has not arrived yet.' }, { status: 403 });
   }
 

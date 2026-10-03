@@ -24,11 +24,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { searchParams } = new URL(req.url);
-  const userId = searchParams.get('userId');
-
-  if (!userId) {
-    return NextResponse.json({ error: 'userId query param is required.' }, { status: 400 });
-  }
+  const userId = searchParams.get('userId') ?? requestingUserId;
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -57,7 +53,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const { publicKey } = (await req.json()) as { publicKey?: string };
+  const { publicKey, replace } = (await req.json()) as { publicKey?: string; replace?: boolean };
 
   if (!publicKey || typeof publicKey !== 'string') {
     return NextResponse.json({ error: 'publicKey (JWK string) is required.' }, { status: 400 });
@@ -73,10 +69,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'publicKey is not a valid RSA JWK.' }, { status: 400 });
   }
 
-  await prisma.user.update({
-    where: { id: userId },
+  const changed = await prisma.user.updateMany({
+    where: replace ? { id: userId } : { id: userId, publicKey: null },
     data: { publicKey },
   });
+
+  if (!changed.count) {
+    const current = await prisma.user.findUnique({ where: { id: userId }, select: { publicKey: true } });
+    const sameKey = current?.publicKey && (() => {
+      const a = JSON.parse(current.publicKey!) as JsonWebKey;
+      const b = JSON.parse(publicKey) as JsonWebKey;
+      return a.n === b.n && a.e === b.e;
+    })();
+    if (!sameKey) return NextResponse.json({ error: 'A different public key is already registered.' }, { status: 409 });
+  }
 
   return NextResponse.json({ ok: true });
 }

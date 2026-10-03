@@ -1,280 +1,84 @@
 'use client';
 
-/**
- * app/letter/[id]/LetterClient.tsx
- *
- * Client component for viewing a single letter.
- * Handles client-side E2EE decryption using the active user's private key.
- *
- * Senders can always preview their own sent letter at any time.
- * Recipients can view the letter once delivered (True Blind Delivery).
- */
-
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useCrypto } from '@/context/CryptoContext';
-import { decryptLetter, EncryptedLetterPayload } from '@/lib/crypto-client';
+import { decryptLetter, type EncryptedLetterPayload } from '@/lib/crypto-client';
+import { recordDailyVisit } from '@/lib/daily-visit';
 import Envelope3D from '@/components/Envelope3D';
 
-interface UserInfo {
-  id: string;
-  name: string;
-  avatarColor: string;
-}
-
-interface LetterData {
-  id: string;
-  title: string;
-  paperStyle: string;
-  waxSealColor: string;
+type Person = { id: string; name: string; avatarColor: string };
+type Letter = {
+  id: string; title: string; waxSealColor: string;
   deliveryType: 'STANDARD' | 'EXPRESS' | 'PIGEON';
   status: 'IN_FLIGHT' | 'DELIVERED' | 'DRAFT' | 'LOST' | 'RETURNED';
-  deliverAt: string;
-  openedAt: string | null;
-  distanceKm: number | null;
-  flightDurationSec: number | null;
-  pigeonSurvived: boolean | null;
-  pigeonNote: string | null;
-  destAddress: string | null;
-  createdAt: string;
-  sender: UserInfo;
-  recipient: UserInfo;
-  encryptedContent: string | null;
-  iv: string | null;
-  encryptedKeyRecipient: string | null;
-  encryptedKeySender: string | null;
-}
+  deliverAt: string; openedAt: string | null; createdAt: string;
+  distanceKm: number | null; pigeonNote: string | null; destAddress: string | null;
+  sender: Person; recipient: Person;
+  encryptedContent: string | null; iv: string | null;
+  encryptedKeyRecipient: string | null; encryptedKeySender: string | null;
+};
 
-interface Props {
-  letter: LetterData;
-  activeUserId: string;
-  locked: boolean;
-  msUntilDelivery: number;
-}
+function formattedDate(value: string) { return new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }); }
 
-type DecryptState = 'idle' | 'decrypting' | 'done' | 'error';
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
-export default function LetterClient({
-  letter,
-  activeUserId,
-  locked,
-  msUntilDelivery,
-}: Props) {
-  const router = useRouter();
+export default function LetterClient({ letter, activeUserId, locked, msUntilDelivery }: { letter: Letter; activeUserId: string; locked: boolean; msUntilDelivery: number }) {
   const { keypair, isReady } = useCrypto();
+  const isRecipient = letter.recipient.id === activeUserId;
+  const [decryptState, setDecryptState] = useState<'idle' | 'decrypting' | 'done' | 'error'>('idle');
+  const [content, setContent] = useState('');
+  const [addressFrom, setAddressFrom] = useState<string | undefined>();
+  const [addressTo, setAddressTo] = useState<string | undefined>();
+  const [pigeonDestination, setPigeonDestination] = useState<string | undefined>();
+  const [decryptError, setDecryptError] = useState('');
 
-  const isSender = letter.sender.id === activeUserId;
-  const isRecipient = !isSender;
-
-  const [decryptState, setDecryptState] = useState<DecryptState>('idle');
-  const [decryptedContent, setDecryptedContent] = useState<string | null>(null);
-  const [decryptedAddressFrom, setDecryptedAddressFrom] = useState<string | undefined>(undefined);
-  const [decryptedAddressTo, setDecryptedAddressTo] = useState<string | undefined>(undefined);
-  const [decryptError, setDecryptError] = useState<string | null>(null);
-
+  useEffect(() => { void recordDailyVisit(activeUserId).catch(() => {}); }, [activeUserId]);
   useEffect(() => {
-    if (!isReady || !keypair || locked) return;
-
-    const hasRecipientPayload =
-      letter.encryptedContent && letter.iv && letter.encryptedKeyRecipient;
-    const hasSenderPayload =
-      letter.encryptedContent && letter.iv && letter.encryptedKeySender;
-
-    const canDecrypt = isRecipient
-      ? hasRecipientPayload
-      : hasSenderPayload;
-
-    if (!canDecrypt) return;
-
+    if (!isReady || !keypair || locked || !letter.encryptedContent || !letter.iv) return;
+    if (isRecipient && !letter.encryptedKeyRecipient || !isRecipient && !letter.encryptedKeySender) return;
     async function decrypt() {
       setDecryptState('decrypting');
       try {
         const payload: EncryptedLetterPayload = {
-          encryptedContent: letter.encryptedContent!,
-          iv: letter.iv!,
-          encryptedKeyRecipient: letter.encryptedKeyRecipient ?? '',
-          encryptedKeySender: letter.encryptedKeySender ?? '',
+          encryptedContent: letter.encryptedContent!, iv: letter.iv!,
+          encryptedKeyRecipient: letter.encryptedKeyRecipient ?? '', encryptedKeySender: letter.encryptedKeySender ?? '',
         };
-
-        const { content, addressFrom, addressTo } = await decryptLetter(
-          payload,
-          keypair!.privateKey,
-          isRecipient,
-        );
-
-        setDecryptedContent(content);
-        setDecryptedAddressFrom(addressFrom);
-        setDecryptedAddressTo(addressTo);
+        const result = await decryptLetter(payload, keypair!.privateKey, isRecipient);
+        setContent(result.content);
+        setAddressFrom(result.addressFrom);
+        setAddressTo(result.addressTo);
+        setPigeonDestination(result.pigeonDestination);
         setDecryptState('done');
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setDecryptError(msg);
+      } catch (cause) {
+        setDecryptError(cause instanceof Error ? cause.message : 'Could not decrypt this letter.');
         setDecryptState('error');
       }
     }
-
     void decrypt();
-  }, [isReady, keypair, locked, isRecipient]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The letter content is immutable after dispatch.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReady, keypair, locked, isRecipient]);
 
-  return (
-    <div className="min-h-dvh flex flex-col">
-      {/* Header */}
-      <header
-        className="sticky top-0 z-40 safe-top px-4 py-3 flex items-center gap-3"
-        style={{
-          background: 'rgba(138,163,194,0.3)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderBottom: '1px solid rgba(253,245,230,0.25)',
-        }}
-      >
-        <motion.button
-          onClick={() => router.back()}
-          className="w-8 h-8 rounded-full flex items-center justify-center"
-          style={{ background: 'rgba(43,65,98,0.08)', color: '#2B4162' }}
-          whileTap={{ scale: 0.9 }}
-          aria-label="Back to inbox"
-        >
-          ←
-        </motion.button>
-        <div>
-          <p className="font-sans text-xs" style={{ color: 'rgba(43,65,98,0.5)' }}>
-            {isSender
-              ? `To ${letter.recipient.name}`
-              : `From ${letter.sender.name}`}
-          </p>
-          <p className="font-sans text-xs font-medium" style={{ color: 'rgba(43,65,98,0.35)' }}>
-            {formatDate(letter.deliverAt)}
-          </p>
-        </div>
+  function markOpened() {
+    if (!isRecipient || letter.openedAt) return;
+    void fetch(`/api/letters/${letter.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'open' }) }).catch(() => {});
+  }
 
-        {/* E2EE badge */}
-        <div className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-          style={{ background: 'rgba(26,139,157,0.1)', border: '1px solid rgba(26,139,157,0.2)' }}
-        >
-          <span style={{ fontSize: 11 }}>🔐</span>
-          <span className="font-sans text-[10px] font-semibold" style={{ color: '#1A8B9D' }}>
-            End-to-end encrypted
-          </span>
-        </div>
-      </header>
-
-      <main className="flex-1 px-4 pt-8 pb-16 flex flex-col items-center">
-
-        {/* Pigeon flight info */}
-        {letter.deliveryType === 'PIGEON' &&
-          letter.status === 'IN_FLIGHT' &&
-          letter.distanceKm != null && (
-            <motion.div
-              className="w-full max-w-sm mb-4 glass rounded-2xl px-4 py-3 flex flex-col gap-1"
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-xl">🐦</span>
-                <p className="font-sans text-xs font-semibold" style={{ color: '#1A8B9D' }}>
-                  Pigeon in flight
-                </p>
-              </div>
-              <p className="font-sans text-xs truncate" style={{ color: 'rgba(43,65,98,0.65)' }}>
-                {Math.round(letter.distanceKm).toLocaleString()} km → {letter.destAddress}
-              </p>
-              {letter.pigeonNote && (
-                <p className="font-sans text-[11px] italic mt-1" style={{ color: 'rgba(43,65,98,0.5)' }}>
-                  ☁️ {letter.pigeonNote}
-                </p>
-              )}
-            </motion.div>
-          )}
-
-        {/* Decryption error */}
-        {decryptState === 'error' && (
-          <motion.div
-            className="w-full max-w-sm mb-4 rounded-2xl px-4 py-3"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={{ background: 'rgba(255,81,47,0.1)', border: '1px solid rgba(255,81,47,0.2)' }}
-          >
-            <p className="font-sans text-xs font-semibold mb-1" style={{ color: '#C0391B' }}>
-              ⚠️ Decryption failed
-            </p>
-            <p className="font-sans text-xs" style={{ color: 'rgba(43,65,98,0.65)' }}>
-              {decryptError}
-            </p>
-            <p className="font-sans text-xs mt-1" style={{ color: 'rgba(43,65,98,0.45)' }}>
-              Use &quot;Back up key&quot; in settings to transfer your keys between devices.
-            </p>
-          </motion.div>
-        )}
-
-        {/* 3D Envelope */}
-        <div className="w-full max-w-sm">
-          <Envelope3D
-            status={letter.status}
-            locked={locked}
-            senderName={letter.sender.name}
-            recipientName={letter.recipient.name}
-            addressFrom={decryptedAddressFrom}
-            addressTo={decryptedAddressTo}
-            title={letter.title}
-            waxSealColor={letter.waxSealColor}
-            deliveryType={letter.deliveryType}
-            msUntilDelivery={msUntilDelivery}
-          >
-            {/* Decrypting spinner */}
-            {decryptState === 'decrypting' && (
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <motion.div
-                  className="w-8 h-8 rounded-full border-3"
-                  style={{ borderColor: '#1A8B9D', borderTopColor: 'transparent' }}
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-                />
-                <p className="font-sans text-xs" style={{ color: 'rgba(43,65,98,0.5)' }}>
-                  Decrypting letter…
-                </p>
-              </div>
-            )}
-
-            {/* Decrypted content */}
-            {decryptState === 'done' && decryptedContent && (
-              <motion.div
-                className="font-serif text-sm leading-relaxed whitespace-pre-wrap"
-                style={{ color: '#2B4162' }}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2 }}
-              >
-                {decryptedContent}
-              </motion.div>
-            )}
-          </Envelope3D>
-        </div>
-
-        {/* Sender note */}
-        {isSender && (
-          <motion.p
-            className="mt-6 font-sans text-xs text-center max-w-xs"
-            style={{ color: 'rgba(43,65,98,0.4)' }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-          >
-            You sent this letter on {formatDate(letter.deliverAt)}
-            {letter.status === 'IN_FLIGHT' ? " — it hasn't arrived yet." : '.'}
-          </motion.p>
-        )}
-      </main>
-    </div>
-  );
+  return <div>
+    <header className="site-header safe-top"><div className="page-shell site-header__inner"><Link href="/" className="brand"><span className="brand__name">Sunset Messages</span><span className="brand__tag">Your correspondence</span></Link><Link href="/" className="action action--quiet">Back to inbox</Link></div></header>
+    <main className="page-shell page-main">
+      <section className="page-intro page-intro--letter">
+        <p className="eyebrow">{isRecipient ? `A letter from ${letter.sender.name}` : `A letter to ${letter.recipient.name}`}</p>
+        <h1 className="display-title" style={{ maxWidth: 850, overflowWrap: 'anywhere' }}>{letter.title}</h1>
+        <p className="small-copy">{isRecipient ? 'Arrived' : 'Sent'} {formattedDate(isRecipient ? letter.deliverAt : letter.createdAt)} · {letter.deliveryType.toLowerCase()} delivery · Letter body encrypted</p>
+      </section>
+      {letter.deliveryType === 'PIGEON' && letter.distanceKm != null && <div className="status-note" style={{ marginBottom: 26 }}><strong>Pigeon journey</strong><div className="small-copy">{Math.round(letter.distanceKm).toLocaleString()} km{pigeonDestination || letter.destAddress ? ` to ${pigeonDestination ?? letter.destAddress}` : ''}</div>{letter.pigeonNote && <div className="small-copy">{letter.pigeonNote}</div>}</div>}
+      {decryptState === 'error' && <p role="alert" className="status-note status-note--error" style={{ marginBottom: 26 }}>Could not read this letter: {decryptError}. Restore this profile’s encryption key if you are on a new device.</p>}
+      <div className="letter-stage">
+        <Envelope3D status={letter.status} locked={locked} senderName={letter.sender.name} recipientName={letter.recipient.name} addressFrom={addressFrom} addressTo={addressTo} title={letter.title} deliveryType={letter.deliveryType} msUntilDelivery={msUntilDelivery} onOpen={markOpened}>
+          {decryptState === 'done' ? content : decryptState === 'error' ? 'This letter could not be decrypted.' : 'Decrypting your letter…'}
+        </Envelope3D>
+      </div>
+      {isRecipient ? <p className="small-copy" style={{ marginTop: 18 }}>Opening the envelope marks this letter as read.</p> : <p className="small-copy" style={{ marginTop: 18 }}>You sent this letter on {formattedDate(letter.createdAt)}{letter.status === 'IN_FLIGHT' ? '. It has not arrived yet.' : '.'}</p>}
+    </main>
+  </div>;
 }

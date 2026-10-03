@@ -16,7 +16,7 @@ import {
   haversineDistanceKm,
   calculatePigeonFlight,
 } from '@/lib/haversine';
-import { DeliveryType, LetterStatus, TransactionType } from '@prisma/client';
+import { DeliveryType, LetterStatus, TransactionType, Prisma } from '@prisma/client';
 
 // ── Delivery cost map ─────────────────────────────────────────────────────────
 const DELIVERY_COST: Record<DeliveryType, number> = {
@@ -49,7 +49,6 @@ export async function GET(req: NextRequest) {
     openedAt: true,
     distanceKm: true,
     flightDurationSec: true,
-    pigeonSurvived: true,
     pigeonNote: true,
     destAddress: true,
     createdAt: true,
@@ -63,19 +62,27 @@ export async function GET(req: NextRequest) {
       select: letterSelect,
       orderBy: { createdAt: 'desc' },
     });
-    return NextResponse.json({ letters });
+    const now = Date.now();
+    return NextResponse.json({ letters: letters.map((letter) => ({
+      ...letter,
+      status: letter.status === LetterStatus.IN_FLIGHT && letter.deliverAt.getTime() <= now
+        ? LetterStatus.DELIVERED : letter.status,
+    })) });
   }
 
   // Inbox: only DELIVERED letters (True Blind Delivery - hides in-flight letters)
   const letters = await prisma.letter.findMany({
     where: {
       recipientId: userId,
-      status: LetterStatus.DELIVERED,
+      OR: [{ status: LetterStatus.DELIVERED }, { status: LetterStatus.IN_FLIGHT, deliverAt: { lte: new Date() } }],
     },
     select: letterSelect,
     orderBy: { deliverAt: 'asc' },
   });
-  return NextResponse.json({ letters });
+  return NextResponse.json({ letters: letters.map((letter) => ({
+    ...letter,
+    status: letter.status === LetterStatus.IN_FLIGHT ? LetterStatus.DELIVERED : letter.status,
+  })) });
 }
 
 // ─── POST – Send an E2EE Letter ───────────────────────────────────────────────
@@ -152,6 +159,9 @@ export async function POST(req: NextRequest) {
 
   // ── Balance check ─────────────────────────────────────────────────────────
   const cost = DELIVERY_COST[deliveryType];
+  if (cost === undefined) {
+    return NextResponse.json({ error: 'Unknown delivery type.' }, { status: 400 });
+  }
   if (sender.pigeonCoins < cost) {
     return NextResponse.json(
       { error: `Insufficient PigeonCoins. ${deliveryType} delivery costs ${cost} coins (you have ${sender.pigeonCoins}).` },
@@ -178,63 +188,44 @@ export async function POST(req: NextRequest) {
     PIGEON: TransactionType.DELIVERY_PIGEON,
   };
 
+  async function chargeAndCreate(data: Prisma.LetterUncheckedCreateInput, description: string) {
+    return prisma.$transaction(async (tx) => {
+      const charge = await tx.user.updateMany({
+        where: { id: userId!, pigeonCoins: { gte: cost } },
+        data: { pigeonCoins: { decrement: cost } },
+      });
+      if (!charge.count) return null;
+      const letter = await tx.letter.create({ data });
+      await tx.transaction.create({
+        data: { userId: userId!, letterId: letter.id, amount: -cost, type: txnType[deliveryType], description },
+      });
+      return letter;
+    });
+  }
+
   // ── STANDARD (14 days, 50 coins) ──────────────────────────────────────────
   if (deliveryType === DeliveryType.STANDARD) {
     const deliverAt = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-    const [letter] = await prisma.$transaction([
-      prisma.letter.create({
-        data: {
-          ...baseLetterData,
-          deliveryType: DeliveryType.STANDARD,
-          status: LetterStatus.IN_FLIGHT,
-          deliverAt,
-        },
-      }),
-      prisma.user.update({
-        where: { id: userId },
-        data: { pigeonCoins: { decrement: cost } },
-      }),
-      prisma.transaction.create({
-        data: {
-          userId,
-          amount: -cost,
-          type: txnType.STANDARD,
-          description: `Standard delivery: -${cost} PigeonCoins`,
-        },
-      }),
-    ]);
+    const letter = await chargeAndCreate({
+      ...baseLetterData, deliveryType: DeliveryType.STANDARD,
+      status: LetterStatus.IN_FLIGHT, deliverAt,
+    }, `Standard delivery: -${cost} PigeonCoins`);
+    if (!letter) return NextResponse.json({ error: 'Insufficient PigeonCoins.' }, { status: 402 });
     return NextResponse.json({ letter, cost, message: 'Standard letter dispatched!' }, { status: 201 });
   }
 
   // ── EXPRESS (7 days, 100 coins) ───────────────────────────────────────────
   if (deliveryType === DeliveryType.EXPRESS) {
     const deliverAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const [letter] = await prisma.$transaction([
-      prisma.letter.create({
-        data: {
-          ...baseLetterData,
-          deliveryType: DeliveryType.EXPRESS,
-          status: LetterStatus.IN_FLIGHT,
-          deliverAt,
-        },
-      }),
-      prisma.user.update({
-        where: { id: userId },
-        data: { pigeonCoins: { decrement: cost } },
-      }),
-      prisma.transaction.create({
-        data: {
-          userId,
-          amount: -cost,
-          type: txnType.EXPRESS,
-          description: `Express delivery: -${cost} PigeonCoins`,
-        },
-      }),
-    ]);
+    const letter = await chargeAndCreate({
+      ...baseLetterData, deliveryType: DeliveryType.EXPRESS,
+      status: LetterStatus.IN_FLIGHT, deliverAt,
+    }, `Express delivery: -${cost} PigeonCoins`);
+    if (!letter) return NextResponse.json({ error: 'Insufficient PigeonCoins.' }, { status: 402 });
     return NextResponse.json({ letter, cost, message: 'Express letter dispatched!' }, { status: 201 });
   }
 
-  // ── PIGEON (distance-based with 30% chance of 25% weather delay, 150 coins) ───
+  // ── PIGEON (distance-based on-time chance, otherwise 25% delay) ──────────
   if (deliveryType === DeliveryType.PIGEON) {
     const { senderLat, senderLng, destLat, destLng, destAddress } = body;
 
@@ -244,50 +235,29 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    if (![senderLat, destLat].every((n) => Number.isFinite(n) && Math.abs(n) <= 90) ||
+        ![senderLng, destLng].every((n) => Number.isFinite(n) && Math.abs(n) <= 180)) {
+      return NextResponse.json({ error: 'Invalid route coordinates.' }, { status: 400 });
+    }
 
     const distanceKm = haversineDistanceKm(senderLat, senderLng, destLat, destLng);
-    const { finalDurationSec, isDelayed, pigeonNote } = calculatePigeonFlight(distanceKm);
+    const { finalDurationSec, isDelayed, pigeonNote, successRate } = calculatePigeonFlight(distanceKm);
     const deliverAt = new Date(now.getTime() + finalDurationSec * 1000);
 
-    const pigeonData = {
-      senderLat, senderLng, destLat, destLng, destAddress,
-      distanceKm,
-      flightDurationSec: finalDurationSec,
-      survivalRate: 1.0,
-    };
-
     // Deduct 150 coins upfront
-    const [letter] = await prisma.$transaction([
-      prisma.letter.create({
-        data: {
-          ...baseLetterData,
-          ...pigeonData,
-          deliveryType: DeliveryType.PIGEON,
-          status: LetterStatus.IN_FLIGHT,
-          deliverAt,
-          pigeonSurvived: true,
-          pigeonNote,
-        },
-      }),
-      prisma.user.update({
-        where: { id: userId },
-        data: { pigeonCoins: { decrement: cost } },
-      }),
-      prisma.transaction.create({
-        data: {
-          userId,
-          amount: -cost,
-          type: txnType.PIGEON,
-          description: `Pigeon delivery: -${cost} PigeonCoins → ${destAddress}`,
-        },
-      }),
-    ]);
+    const letter = await chargeAndCreate({
+      ...baseLetterData, distanceKm, flightDurationSec: finalDurationSec,
+      deliveryType: DeliveryType.PIGEON, status: LetterStatus.IN_FLIGHT,
+      deliverAt, pigeonNote,
+    }, `Pigeon delivery: -${cost} PigeonCoins`);
+    if (!letter) return NextResponse.json({ error: 'Insufficient PigeonCoins.' }, { status: 402 });
 
     return NextResponse.json(
       {
         letter,
         cost,
         distanceKm,
+        successRate,
         flightDurationSec: finalDurationSec,
         isDelayed,
         pigeonNote,

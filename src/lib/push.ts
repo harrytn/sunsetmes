@@ -10,15 +10,6 @@
 import webpush from 'web-push';
 import prisma from '@/lib/prisma';
 
-// ── VAPID initialisation ──────────────────────────────────────────────────────
-// These are read at module load time. In local dev they come from .env;
-// on Vercel they come from project environment variables.
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!,
-);
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface PushPayload {
@@ -26,7 +17,6 @@ export interface PushPayload {
   body: string;
   url: string;            // Deep link opened on notification tap
   tag?: string;           // Deduplication tag (default: 'sunset-messages')
-  letterId?: string;      // Passed to the service worker for routing
 }
 
 // ── Main helper ───────────────────────────────────────────────────────────────
@@ -39,6 +29,12 @@ export async function sendPushNotification(
   userId: string,
   payload: PushPayload,
 ): Promise<number> {
+  const { VAPID_SUBJECT, NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY } = process.env;
+  if (!VAPID_SUBJECT || !NEXT_PUBLIC_VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+    throw new Error('Push notifications need all three VAPID environment variables.');
+  }
+  webpush.setVapidDetails(VAPID_SUBJECT, NEXT_PUBLIC_VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+
   const subs = await prisma.pushSubscription.findMany({
     where: { userId },
   });
@@ -50,7 +46,6 @@ export async function sendPushNotification(
     body: payload.body,
     url: payload.url,
     tag: payload.tag ?? 'sunset-messages',
-    letterId: payload.letterId ?? null,
     icon: '/icons/icon-192.png',
     badge: '/icons/badge-72.png',
   });
@@ -76,7 +71,9 @@ export async function sendPushNotification(
         if (statusCode === 404 || statusCode === 410) {
           staleIds.push(sub.id);
         }
-        // Other errors (e.g. network) are silently ignored; the next attempt will retry
+        if (statusCode !== 404 && statusCode !== 410) {
+          console.error('Push delivery failed', { statusCode });
+        }
       }
     }),
   );

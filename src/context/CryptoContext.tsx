@@ -34,6 +34,7 @@ import {
 // ─── Context shape ────────────────────────────────────────────────────────────
 
 interface CryptoContextValue {
+  userId: string | null;
   keypair: CryptoKeyPair | null;
   isReady: boolean;
   error: string | null;
@@ -42,6 +43,7 @@ interface CryptoContextValue {
 }
 
 const CryptoContext = createContext<CryptoContextValue>({
+  userId: null,
   keypair: null,
   isReady: false,
   error: null,
@@ -50,7 +52,7 @@ const CryptoContext = createContext<CryptoContextValue>({
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-export function CryptoProvider({ children }: { children: React.ReactNode }) {
+export function CryptoProvider({ children, userId }: { children: React.ReactNode; userId: string | null }) {
   const [keypair, setKeypair] = useState<CryptoKeyPair | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,32 +61,28 @@ export function CryptoProvider({ children }: { children: React.ReactNode }) {
   const init = useCallback(async () => {
     setIsReady(false);
     setError(null);
+    setKeypair(null);
+    if (!userId) { setIsReady(true); return; }
     try {
-      // 1. Try IndexedDB first
-      let kp = await getStoredKeypair();
-
-      if (!kp) {
-        // 2. Generate fresh keypair
-        kp = await generateRsaKeypair();
-        await storeKeypair(kp);
-
-        // 3. Publish public key to server
-        const pubJwk = await exportPublicKeyJwk(kp.publicKey);
-        await fetch('/api/users/public-key', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ publicKey: pubJwk }),
-        });
+      const keyResponse = await fetch('/api/users/public-key');
+      if (!keyResponse.ok && keyResponse.status !== 404) throw new Error('Could not check your public key.');
+      const published = keyResponse.ok ? (await keyResponse.json()).publicKey as string : null;
+      let kp = await getStoredKeypair(userId);
+      if (!kp && published) throw new Error('This profile already has an encryption key. Import its backup on this device before writing letters.');
+      if (!kp) kp = await generateRsaKeypair();
+      const pubJwk = await exportPublicKeyJwk(kp.publicKey);
+      if (published) {
+        const local = JSON.parse(pubJwk) as JsonWebKey;
+        const remote = JSON.parse(published) as JsonWebKey;
+        if (local.n !== remote.n || local.e !== remote.e) throw new Error('This device has a different key for this profile. Import the correct backup.');
       } else {
-        // Key exists locally — ensure the server also has the public key
-        // (handles fresh DB wipes or profile changes)
-        const pubJwk = await exportPublicKeyJwk(kp.publicKey);
-        await fetch('/api/users/public-key', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const saveResponse = await fetch('/api/users/public-key', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ publicKey: pubJwk }),
         });
+        if (!saveResponse.ok) throw new Error('Could not publish your encryption key.');
       }
+      await storeKeypair(userId, kp);
 
       setKeypair(kp);
       setIsReady(true);
@@ -93,37 +91,36 @@ export function CryptoProvider({ children }: { children: React.ReactNode }) {
       setError(`Crypto init failed: ${msg}`);
       setIsReady(true); // unblock the UI even on error
     }
-  }, [rev]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   useEffect(() => {
-    void init();
-  }, [init]);
+    const timer = window.setTimeout(() => void init(), 0);
+    return () => window.clearTimeout(timer);
+  }, [init, rev]);
 
   const reinit = useCallback(() => setRev((r) => r + 1), []);
 
   return (
-    <CryptoContext.Provider value={{ keypair, isReady, error, reinit }}>
-      {/* Subtle key-initialising overlay — only shown briefly on very first load */}
-      {!isReady && (
+    <CryptoContext.Provider value={{ userId, keypair, isReady, error, reinit }}>
+      {/* Brief key initialization state. */}
+      {!isReady && userId && (
         <div
           className="fixed inset-0 z-[9999] flex items-center justify-center"
           style={{
-            background: 'rgba(138,163,194,0.6)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
+            background: '#FFF8ED',
           }}
         >
           <div className="text-center">
-            <div className="text-4xl mb-3 animate-pulse">🔐</div>
+            <p className="eyebrow">Private correspondence</p>
             <p
               className="font-serif text-base font-semibold"
-              style={{ color: '#2B4162' }}
+              style={{ color: '#261F19' }}
             >
               Preparing your secure keys…
             </p>
             <p
               className="font-sans text-xs mt-1"
-              style={{ color: 'rgba(43,65,98,0.55)' }}
+              style={{ color: '#665548' }}
             >
               This only happens once
             </p>

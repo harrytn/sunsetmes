@@ -16,6 +16,8 @@
 # next.js
 /.next/
 /out/
+/output/pdf/
+/tmp/
 
 # production
 /build

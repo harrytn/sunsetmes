@@ -26,21 +26,12 @@ export default async function ComposePage() {
 
   if (recipients.length === 0) {
     return (
-      <main className="min-h-dvh flex items-center justify-center p-6">
-        <div className="glass rounded-3xl p-8 text-center max-w-sm">
-          <div className="text-5xl mb-4">🌅</div>
-          <h1
-            className="font-serif text-xl font-bold mb-3"
-            style={{ color: '#2B4162' }}
-          >
-            No one to write to
-          </h1>
-          <p
-            className="font-sans text-sm"
-            style={{ color: 'rgba(43,65,98,0.65)' }}
-          >
+      <main className="page-shell page-main">
+        <div className="panel panel--warm" style={{ maxWidth: 620 }}>
+          <h1 className="section-title">No one to write to</h1>
+          <p className="body-copy">
             Run{' '}
-            <code className="font-mono text-xs bg-white/40 px-1.5 py-0.5 rounded">
+            <code>
               npx prisma db seed
             </code>{' '}
             to create both user profiles.

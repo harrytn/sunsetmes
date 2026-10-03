@@ -2,7 +2,7 @@
  * lib/haversine.ts
  *
  * Pure Haversine formula for great-circle distance calculation,
- * flight duration estimation, and random weather delay calculations.
+ * flight duration estimation, and the chance of an on-time flight.
  * Used by the Pigeon Post delivery method.
  */
 
@@ -35,7 +35,7 @@ export function haversineDistanceKm(
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
 
-  const c = 2 * Math.asin(Math.sqrt(a));
+  const c = 2 * Math.asin(Math.sqrt(Math.min(1, a)));
   return EARTH_RADIUS_KM * c;
 }
 
@@ -44,17 +44,15 @@ export function haversineDistanceKm(
  * Assumes PIGEON_SPEED_KMH = 80 km/h.
  */
 export function flightDurationSeconds(distanceKm: number): number {
-  return Math.round((distanceKm / PIGEON_SPEED_KMH) * 3600);
+  return Math.max(60, Math.ceil((distanceKm / PIGEON_SPEED_KMH) * 3600));
 }
 
 /**
- * Check if the pigeon encounters weather/wind delays.
- * 30% chance of a 25% time penalty.
+ * The percentage shown before dispatch is the exact probability used by
+ * the server. Longer routes are less likely to arrive on time.
  */
-export function rollPigeonDelay(): { isDelayed: boolean; delayMultiplier: number } {
-  const isDelayed = Math.random() < 0.30;
-  const delayMultiplier = isDelayed ? 1.25 : 1.0;
-  return { isDelayed, delayMultiplier };
+export function pigeonOnTimeRate(distanceKm: number): number {
+  return Math.max(60, Math.round(95 - distanceKm / 200)) / 100;
 }
 
 /**
@@ -74,23 +72,24 @@ export function pigeonDelayNote(): string {
 }
 
 /**
- * Calculate pigeon flight duration in seconds with potential 25% delay penalty.
+ * One roll decides whether weather adds 25% to the journey.
  */
 export function calculatePigeonFlight(distanceKm: number): {
-  standardDurationSec: number;
   finalDurationSec: number;
   isDelayed: boolean;
   pigeonNote: string | null;
+  successRate: number;
 } {
   const standardDurationSec = flightDurationSeconds(distanceKm);
-  const { isDelayed, delayMultiplier } = rollPigeonDelay();
-  const finalDurationSec = Math.round(standardDurationSec * delayMultiplier);
+  const successRate = pigeonOnTimeRate(distanceKm);
+  const isDelayed = Math.random() >= successRate;
+  const finalDurationSec = Math.round(standardDurationSec * (isDelayed ? 1.25 : 1));
   const pigeonNote = isDelayed ? pigeonDelayNote() : null;
 
   return {
-    standardDurationSec,
     finalDurationSec,
     isDelayed,
     pigeonNote,
+    successRate,
   };
 }

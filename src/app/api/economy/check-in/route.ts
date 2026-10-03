@@ -23,49 +23,33 @@ export async function POST() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { lastCheckIn: true, pigeonCoins: true },
-  });
-
-  if (!user) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
-  }
-
   const today = todayUtcMidnight();
-
-  // Already checked in today?
-  if (user.lastCheckIn && user.lastCheckIn >= today) {
-    return NextResponse.json({
-      alreadyCheckedIn: true,
-      pigeonCoins: user.pigeonCoins,
-    });
-  }
-
-  // Grant daily check-in
-  const [updated] = await prisma.$transaction([
-    prisma.user.update({
-      where: { id: userId },
+  const result = await prisma.$transaction(async (tx) => {
+    const update = await tx.user.updateMany({
+      where: { id: userId, OR: [{ lastCheckIn: null }, { lastCheckIn: { lt: today } }] },
       data: {
         pigeonCoins: { increment: CHECKIN_AMOUNT },
         lastCheckIn: new Date(),
       },
-      select: { id: true, pigeonCoins: true },
-    }),
-    prisma.transaction.create({
-      data: {
+    });
+    if (update.count) {
+      await tx.transaction.create({ data: {
         userId,
         amount: CHECKIN_AMOUNT,
         type: TransactionType.DAILY_CHECKIN,
-        description: `Daily check-in: +${CHECKIN_AMOUNT} PigeonCoins ☀️`,
-      },
-    }),
-  ]);
+        description: `Daily check-in: +${CHECKIN_AMOUNT} PigeonCoins`,
+      } });
+    }
+    const user = await tx.user.findUnique({ where: { id: userId }, select: { pigeonCoins: true } });
+    return { granted: update.count > 0, pigeonCoins: user?.pigeonCoins };
+  });
+
+  if (result.pigeonCoins == null) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   return NextResponse.json({
-    alreadyCheckedIn: false,
-    granted: CHECKIN_AMOUNT,
-    pigeonCoins: updated.pigeonCoins,
-    message: `+${CHECKIN_AMOUNT} PigeonCoins! Welcome back ☀️`,
+    alreadyCheckedIn: !result.granted,
+    granted: result.granted ? CHECKIN_AMOUNT : 0,
+    pigeonCoins: result.pigeonCoins,
+    message: result.granted ? `You received ${CHECKIN_AMOUNT} PigeonCoins today.` : undefined,
   });
 }

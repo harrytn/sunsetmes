@@ -7,13 +7,11 @@ const DEFAULT_URL = '/';
 
 // ── Install: activate immediately without waiting ─────────────────────────────
 self.addEventListener('install', (event) => {
-  // eslint-disable-next-line no-undef
   event.waitUntil(self.skipWaiting());
 });
 
 // ── Activate: claim all open clients immediately ──────────────────────────────
 self.addEventListener('activate', (event) => {
-  // eslint-disable-next-line no-undef
   event.waitUntil(self.clients.claim());
 });
 
@@ -35,10 +33,9 @@ self.addEventListener('push', (event) => {
     badge = '/icons/badge-72.png',
     tag = 'sunset-messages',
     url = DEFAULT_URL,
-    letterId = null,
   } = data;
 
-  // Store url / letterId in the notification data for the click handler
+  // Store the inbox URL for the click handler.
   const notificationOptions = {
     body,
     icon,
@@ -46,11 +43,10 @@ self.addEventListener('push', (event) => {
     tag,
     renotify: true,
     vibrate: [100, 50, 100],
-    data: { url, letterId },
+    data: { url },
   };
 
   event.waitUntil(
-    // eslint-disable-next-line no-undef
     self.registration.showNotification(title, notificationOptions),
   );
 });
@@ -62,7 +58,6 @@ self.addEventListener('notificationclick', (event) => {
   const targetUrl = event.notification.data?.url ?? DEFAULT_URL;
 
   event.waitUntil(
-    // eslint-disable-next-line no-undef
     self.clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
@@ -75,9 +70,7 @@ self.addEventListener('notificationclick', (event) => {
           }
         }
         // Otherwise open a new window
-        // eslint-disable-next-line no-undef
         if (self.clients.openWindow) {
-          // eslint-disable-next-line no-undef
           return self.clients.openWindow(targetUrl);
         }
       }),

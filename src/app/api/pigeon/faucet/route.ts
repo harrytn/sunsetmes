@@ -51,7 +51,7 @@ export async function POST() {
         userId,
         amount: FAUCET_AMOUNT,
         type: TransactionType.FAUCET_REFILL,
-        description: `Daily faucet: +${FAUCET_AMOUNT} PigeonCoins 🐦`,
+        description: `Daily faucet: +${FAUCET_AMOUNT} PigeonCoins`,
       },
     }),
   ]);
@@ -59,6 +59,6 @@ export async function POST() {
   return NextResponse.json({
     user,
     granted: FAUCET_AMOUNT,
-    message: `${FAUCET_AMOUNT} PigeonCoins added! 🐦`,
+    message: `${FAUCET_AMOUNT} PigeonCoins added.`,
   });
 }

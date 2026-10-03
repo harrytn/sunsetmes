@@ -8,8 +8,10 @@
 
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { getActiveUserId } from '@/lib/session';
 
 export async function GET() {
+  if (!await getActiveUserId()) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   const users = await prisma.user.findMany({
     select: {
       id: true,

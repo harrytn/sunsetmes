@@ -1,498 +1,104 @@
 'use client';
 
-/**
- * app/InboxClient.tsx
- *
- * Client-side inbox & outbox view with:
- * - Tab switching between Inbox (received) and Outbox (sent)
- * - Daily check-in (auto-calls /api/economy/check-in on mount)
- * - Daily Question Widget & Past Question Archive
- * - Realistic Envelope Cards with stamps & sender/recipient badges
- * - User switcher, key backup, notification prompt
- */
-
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import UserSwitcher from '@/components/UserSwitcher';
 import NotificationPrompt from '@/components/NotificationPrompt';
 import KeyBackup from '@/components/KeyBackup';
-import DailyQuestionWidget from '@/components/DailyQuestionWidget';
+import DailyMoodWidget from '@/components/DailyMoodWidget';
+import { recordDailyVisit } from '@/lib/daily-visit';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface UserProfileInfo {
-  id: string;
-  name: string;
-  avatarColor: string;
-}
-
-interface LetterSummary {
-  id: string;
-  senderId: string;
-  recipientId: string;
-  title: string;
-  paperStyle: string;
-  waxSealColor: string;
+type Profile = { id: string; name: string; email: string; avatarColor: string; pigeonCoins: number };
+type Letter = {
+  id: string; senderId: string; recipientId: string; title: string;
   deliveryType: 'STANDARD' | 'EXPRESS' | 'PIGEON';
   status: 'IN_FLIGHT' | 'DELIVERED' | 'DRAFT' | 'LOST' | 'RETURNED';
-  deliverAt: string;
-  openedAt: string | null;
-  distanceKm: number | null;
-  flightDurationSec: number | null;
-  pigeonSurvived: boolean | null;
-  pigeonNote: string | null;
-  destAddress: string | null;
-  createdAt: string;
-  sender: UserProfileInfo;
-  recipient: UserProfileInfo;
+  deliverAt: string; openedAt: string | null; createdAt: string;
+  sender: { name: string }; recipient: { name: string };
+};
+
+function letterStatus(letter: Letter, isOutbox: boolean) {
+  if (letter.status === 'RETURNED' || letter.status === 'LOST') return 'Returned';
+  if (new Date(letter.deliverAt).getTime() > Date.now()) return 'On its way';
+  if (letter.openedAt) return 'Opened';
+  return isOutbox ? 'Delivered' : 'Unread';
 }
 
-interface UserInfo {
-  id: string;
-  name: string;
-  email: string;
-  avatarColor: string;
-  pigeonCoins: number;
+function LetterRow({ letter, isOutbox }: { letter: Letter; isOutbox: boolean }) {
+  const person = isOutbox ? letter.recipient.name : letter.sender.name;
+  const status = letterStatus(letter, isOutbox);
+  return <Link className="letter-item" href={`/letter/${letter.id}`}>
+    <span className="letter-item__mark" aria-hidden="true">{person.slice(0, 1).toUpperCase()}</span>
+    <span style={{ minWidth: 0 }}>
+      <span className="eyebrow" style={{ fontSize: 11 }}>{isOutbox ? `To ${person}` : `From ${person}`} · {letter.deliveryType.toLowerCase()}</span>
+      <span className="letter-item__title" style={{ display: 'block' }}>{letter.title}</span>
+      <span className="letter-item__meta">{new Date(letter.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}</span>
+    </span>
+    <span className="letter-item__status">{status}</span>
+  </Link>;
 }
 
-interface Props {
-  activeUser: UserInfo;
-  allUsers: UserInfo[];
-  letters: LetterSummary[];
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function msUntilDelivery(deliverAt: string): number {
-  return Math.max(0, new Date(deliverAt).getTime() - Date.now());
-}
-
-function formatCountdown(ms: number): string {
-  if (ms <= 0) return 'Arrived';
-  const s = Math.floor(ms / 1000);
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  if (d > 0) return `${d}d ${h}h`;
-  const m = Math.floor((s % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
-
-function deliveryIcon(type: LetterSummary['deliveryType']) {
-  if (type === 'EXPRESS') return '⚡';
-  if (type === 'PIGEON') return '🐦';
-  return '✉️';
-}
-
-// ─── Mini Postage Stamp for Cards ────────────────────────────────────────────
-
-function MiniStamp({ senderName }: { senderName: string }) {
-  const isSun = senderName.toLowerCase().includes('sun') || !senderName.toLowerCase().includes('moon');
-
-  return (
-    <div
-      className="w-9 h-11 rounded-[2px] p-0.5 shadow-sm flex flex-col justify-between items-center relative overflow-hidden"
-      style={{
-        background: isSun
-          ? 'linear-gradient(135deg, #FF6B4A 0%, #FFA834 100%)'
-          : 'linear-gradient(135deg, #2B4162 0%, #5E7EA8 100%)',
-        border: '1.5px dashed rgba(253, 245, 230, 0.85)',
-      }}
-    >
-      <div className="w-full flex justify-between text-[5px] font-sans font-bold text-[#FDF5E6]/90 px-0.5 leading-none">
-        <span>{isSun ? 'SUN' : 'MOON'}</span>
-        <span>50¢</span>
-      </div>
-      <span className="text-[11px] leading-none my-auto">
-        {isSun ? '☀️' : '🌙'}
-      </span>
-      <div className="w-full text-center text-[4.5px] font-sans font-bold text-[#FDF5E6]/80 border-t border-[#FDF5E6]/30 leading-tight">
-        AIR
-      </div>
-    </div>
-  );
-}
-
-// ─── Envelope Card ────────────────────────────────────────────────────────────
-
-function EnvelopeCard({
-  letter,
-  index,
-  isOutbox,
-}: {
-  letter: LetterSummary;
-  index: number;
-  isOutbox?: boolean;
-}) {
-  const ms = msUntilDelivery(letter.deliverAt);
-  const isLocked = ms > 0 && letter.status === 'IN_FLIGHT';
-  const isOpened = !!letter.openedAt;
-
-  const partnerInfo = isOutbox ? letter.recipient : letter.sender;
-  const partnerLabel = isOutbox ? 'To' : 'From';
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05, type: 'spring', stiffness: 220, damping: 22 }}
-    >
-      <Link href={`/letter/${letter.id}`} className="block">
-        <motion.div
-          className="relative rounded-2xl overflow-hidden cursor-pointer paper-texture"
-          style={{
-            background: 'linear-gradient(145deg, #FDF5E6 0%, #F5EDD8 100%)',
-            boxShadow: isOpened
-              ? '0 4px 16px rgba(43,65,98,0.08)'
-              : '0 8px 28px rgba(43,65,98,0.14), 0 2px 6px rgba(43,65,98,0.08)',
-            border: '1px solid rgba(26,139,157,0.18)',
-          }}
-          whileHover={{ y: -3, boxShadow: '0 14px 40px rgba(43,65,98,0.18)' }}
-          whileTap={{ scale: 0.97 }}
-        >
-          {/* Envelope flap */}
-          <div className="h-9 relative overflow-hidden">
-            <svg viewBox="0 0 340 36" className="w-full h-full" preserveAspectRatio="none">
-              <polygon
-                points="0,0 340,0 170,32"
-                fill={`${letter.waxSealColor}18`}
-                stroke={`${letter.waxSealColor}40`}
-                strokeWidth="0.5"
-              />
-            </svg>
-            <div
-              className="absolute top-1 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full flex items-center justify-center text-[8px]"
-              style={{
-                background: letter.waxSealColor,
-                boxShadow: `0 2px 8px ${letter.waxSealColor}66`,
-              }}
-            >
-              🌅
-            </div>
-          </div>
-
-          {/* Body */}
-          <div className="px-4 pb-3.5 pt-1">
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 shadow-sm"
-                  style={{ background: partnerInfo.avatarColor }}
-                >
-                  {partnerInfo.name[0]}
-                </div>
-                <div>
-                  <span className="font-sans text-[10px] font-medium text-gray-500 mr-1">
-                    {partnerLabel}
-                  </span>
-                  <span className="font-sans text-xs font-semibold" style={{ color: '#2B4162' }}>
-                    {partnerInfo.name}
-                  </span>
-                </div>
-              </div>
-
-              {/* Mini postage stamp & delivery type icon */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm">{deliveryIcon(letter.deliveryType)}</span>
-                <MiniStamp senderName={letter.sender.name} />
-              </div>
-            </div>
-
-            {/* Title */}
-            <h3
-              className="font-serif text-base font-semibold leading-tight mb-2.5 line-clamp-2"
-              style={{ color: '#2B4162', opacity: isLocked && !isOutbox ? 0.6 : 1 }}
-            >
-              {isLocked && !isOutbox
-                ? '· · · (Locked until delivery)'
-                : letter.title}
-            </h3>
-
-            {/* Status row */}
-            <div className="flex items-center justify-between">
-              {isLocked ? (
-                <span
-                  className="font-sans text-xs px-2.5 py-0.5 rounded-full font-medium"
-                  style={{ background: 'rgba(26,139,157,0.1)', color: '#1A8B9D' }}
-                >
-                  ⏳ {isOutbox ? `In flight (${formatCountdown(ms)})` : formatCountdown(ms)}
-                </span>
-              ) : isOpened ? (
-                <span
-                  className="font-sans text-xs px-2.5 py-0.5 rounded-full"
-                  style={{ background: 'rgba(43,65,98,0.06)', color: 'rgba(43,65,98,0.45)' }}
-                >
-                  ✓ Opened
-                </span>
-              ) : isOutbox ? (
-                <span
-                  className="font-sans text-xs px-2.5 py-0.5 rounded-full font-medium"
-                  style={{ background: 'rgba(26,139,157,0.12)', color: '#1A8B9D' }}
-                >
-                  📬 Delivered
-                </span>
-              ) : (
-                <span
-                  className="font-sans text-xs px-2.5 py-0.5 rounded-full font-semibold"
-                  style={{ background: '#FF512F', color: 'white' }}
-                >
-                  ✉ New
-                </span>
-              )}
-
-              <span
-                className="font-sans text-[10px]"
-                style={{ color: 'rgba(43,65,98,0.4)' }}
-              >
-                {new Date(letter.createdAt).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </span>
-            </div>
-          </div>
-        </motion.div>
-      </Link>
-    </motion.div>
-  );
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-export default function InboxClient({ activeUser, allUsers, letters }: Props) {
+export default function InboxClient({ activeUser, allUsers, letters }: { activeUser: Profile; allUsers: Profile[]; letters: Letter[] }) {
   const [tab, setTab] = useState<'inbox' | 'outbox'>('inbox');
   const [showKeyBackup, setShowKeyBackup] = useState(false);
   const [coins, setCoins] = useState(activeUser.pigeonCoins);
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
 
-  // Filter letters for Inbox vs Outbox (Inbox: DELIVERED only for true blind delivery)
-  const inboxLetters = letters.filter(
-    (l) => l.recipientId === activeUser.id && l.status === 'DELIVERED'
-  );
-  const outboxLetters = letters.filter(
-    (l) => l.senderId === activeUser.id
-  );
+  const inbox = letters.filter(letter => letter.recipientId === activeUser.id);
+  const outbox = letters.filter(letter => letter.senderId === activeUser.id);
+  const unread = inbox.filter(letter => !letter.openedAt).length;
+  const visible = tab === 'inbox' ? inbox : outbox;
 
-  const displayedLetters = tab === 'inbox' ? inboxLetters : outboxLetters;
-  const unread = inboxLetters.filter((l) => !l.openedAt && l.status === 'DELIVERED').length;
-
-  // Auto daily check-in on mount
   useEffect(() => {
-    async function checkIn() {
-      try {
-        const res = await fetch('/api/economy/check-in', { method: 'POST' });
-        if (res.ok) {
-          const data = await res.json();
-          if (!data.alreadyCheckedIn && data.granted) {
-            setCoins(data.pigeonCoins);
-            setCheckinMessage(data.message);
-            setTimeout(() => setCheckinMessage(null), 4000);
-          } else {
-            setCoins(data.pigeonCoins);
-          }
-        }
-      } catch {
-        // Silently fail
-      }
-    }
-    void checkIn();
-  }, []);
+    void recordDailyVisit(activeUser.id).then(result => {
+      if (!result) return;
+      setCoins(result.pigeonCoins);
+      if (result.granted) setCheckinMessage(result.message ?? `You received ${result.granted} PigeonCoins today.`);
+    }).catch(() => {});
+  }, [activeUser.id]);
 
-  return (
-    <div className="min-h-dvh flex flex-col">
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 safe-top">
-        <div
-          className="relative z-20 px-4 py-3 flex items-center justify-between"
-          style={{
-            background: 'rgba(138,163,194,0.3)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            borderBottom: '1px solid rgba(253,245,230,0.25)',
-          }}
-        >
-          <div>
-            <h1 className="font-serif text-lg font-bold leading-none" style={{ color: '#2B4162' }}>
-              Sunset Messages
-            </h1>
-            <p className="font-sans text-xs mt-0.5" style={{ color: 'rgba(43,65,98,0.55)' }}>
-              {unread > 0 ? `${unread} new letter${unread > 1 ? 's' : ''} 🌅` : 'Your letters'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {/* Coin display */}
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-full glass">
-              <span style={{ fontSize: 11 }}>🐦</span>
-              <span className="font-sans text-xs font-bold" style={{ color: '#2B4162' }}>
-                {coins}
-              </span>
-            </div>
-            <motion.button
-              onClick={() => setShowKeyBackup((v) => !v)}
-              className="w-8 h-8 rounded-full flex items-center justify-center glass text-xs cursor-pointer"
-              style={{ color: '#2B4162' }}
-              whileTap={{ scale: 0.92 }}
-              title="Key Management & Backup"
-              aria-label="Key Management"
-            >
-              🔐
-            </motion.button>
-            <UserSwitcher activeUserId={activeUser.id} />
-          </div>
+  return <div style={{ minHeight: '100dvh' }}>
+    <header className="site-header safe-top">
+      <div className="page-shell site-header__inner">
+        <div className="brand"><span className="brand__name">Sunset Messages</span><span className="brand__tag">Letters worth waiting for</span></div>
+        <div className="header-actions">
+          <span className="small-copy" style={{ marginRight: 8 }}>{coins} PigeonCoins</span>
+          <button className="action action--quiet" onClick={() => setShowKeyBackup(value => !value)} aria-expanded={showKeyBackup} aria-controls="key-backup">Keys</button>
+          <UserSwitcher activeUserId={activeUser.id} users={allUsers} />
         </div>
-
-        {/* Key Backup drawer */}
-        <AnimatePresence>
-          {showKeyBackup && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="relative z-15 overflow-hidden glass-teal border-b"
-              style={{ borderColor: 'rgba(26,139,157,0.2)' }}
-            >
-              <KeyBackup />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Tab bar (Inbox / Outbox) */}
-        <div
-          className="relative z-10 flex px-4 pt-2 pb-0 gap-1"
-          style={{
-            background: 'rgba(138,163,194,0.2)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-          }}
-        >
-          {(['inbox', 'outbox'] as const).map((t) => {
-            const count = t === 'inbox' ? inboxLetters.length : outboxLetters.length;
-            return (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className="relative flex-1 py-2 font-sans text-sm font-semibold capitalize rounded-t-lg transition-colors flex items-center justify-center gap-1.5"
-                style={{
-                  color: tab === t ? '#1A8B9D' : 'rgba(43,65,98,0.5)',
-                }}
-                aria-selected={tab === t}
-                role="tab"
-              >
-                <span>{t}</span>
-                <span
-                  className="text-[10px] px-1.5 py-0.2 rounded-full font-mono"
-                  style={{
-                    background: tab === t ? 'rgba(26,139,157,0.15)' : 'rgba(43,65,98,0.08)',
-                    color: tab === t ? '#1A8B9D' : 'rgba(43,65,98,0.45)',
-                  }}
-                >
-                  {count}
-                </span>
-                {tab === t && (
-                  <motion.div
-                    className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full"
-                    style={{ background: '#1A8B9D' }}
-                    layoutId="tab-indicator"
-                  />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </header>
-
-      {/* ── Content ─────────────────────────────────────────────────────── */}
-      <main className="flex-1 py-2 pb-24">
-        {/* Daily check-in toast */}
-        <AnimatePresence>
-          {checkinMessage && (
-            <motion.div
-              className="mx-4 mb-3 px-4 py-3 rounded-2xl text-center font-sans text-sm font-semibold"
-              style={{
-                background: 'linear-gradient(135deg, rgba(255,209,148,0.5) 0%, rgba(26,139,157,0.2) 100%)',
-                color: '#2B4162',
-                border: '1px solid rgba(26,139,157,0.2)',
-              }}
-              initial={{ opacity: 0, y: -12, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -12, scale: 0.95 }}
-            >
-              ☀️ {checkinMessage}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Notification prompt */}
-        <NotificationPrompt />
-
-        {/* Daily Question Widget & History */}
-        <DailyQuestionWidget />
-
-        <div className="px-4">
-        <AnimatePresence mode="wait">
-          {displayedLetters.length === 0 ? (
-            <motion.div
-              key={tab === 'inbox' ? 'empty-inbox' : 'empty-outbox'}
-              className="flex flex-col items-center justify-center py-16 text-center"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-            >
-              <div className="text-5xl mb-3">{tab === 'inbox' ? '📭' : '✉️'}</div>
-              <h2
-                className="font-serif text-lg font-semibold mb-1"
-                style={{ color: '#2B4162' }}
-              >
-                {tab === 'inbox' ? 'No letters received yet' : 'No letters sent yet'}
-              </h2>
-              <p
-                className="font-sans text-xs max-w-xs"
-                style={{ color: 'rgba(43,65,98,0.55)' }}
-              >
-                {tab === 'inbox'
-                  ? 'Letters sent to you by Sun or Moon will arrive here.'
-                  : 'Tap the compose button below to write your first letter.'}
-              </p>
-            </motion.div>
-          ) : (
-            <motion.div
-              key={tab}
-              className="grid gap-3"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              {displayedLetters.map((letter, i) => (
-                <EnvelopeCard
-                  key={letter.id}
-                  letter={letter}
-                  index={i}
-                  isOutbox={tab === 'outbox'}
-                />
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-        </div>
-      </main>
-
-      {/* ── Compose FAB ────────────────────────────────────────────────── */}
-      <div className="fixed bottom-6 right-6 z-50 safe-bottom">
-        <Link href="/compose" aria-label="Compose new letter">
-          <motion.div
-            className="w-14 h-14 rounded-full flex items-center justify-center text-white text-2xl shadow-xl"
-            style={{
-              background: 'linear-gradient(135deg, #FF512F 0%, #F09819 100%)',
-              boxShadow: '0 8px 24px rgba(255,81,47,0.4)',
-            }}
-            whileHover={{ scale: 1.08 }}
-            whileTap={{ scale: 0.92 }}
-          >
-            ✍️
-          </motion.div>
-        </Link>
       </div>
-    </div>
-  );
+    </header>
+
+    {showKeyBackup && <section id="key-backup" className="page-shell panel" style={{ marginTop: 20 }} aria-label="Key backup"><KeyBackup /></section>}
+
+    <main className="page-shell page-main">
+      <section className="inbox-hero">
+        <div className="inbox-hero__copy">
+          <p className="eyebrow">The Sunset Post · Private correspondence</p>
+          <h1 className="display-title" style={{ maxWidth: 690 }}>Words that arrive in their own time.</h1>
+          <p className="body-copy" style={{ marginBottom: 0 }}>{unread ? `${unread} unread ${unread === 1 ? 'letter is' : 'letters are'} waiting for you.` : 'Take a moment. Your next letter will be here when it arrives.'}</p>
+          <Link href="/compose" className="action action--primary">Write a letter <span aria-hidden="true">↗</span></Link>
+        </div>
+        <div className="inbox-hero__art" aria-hidden="true"><span className="inbox-hero__art-label">POSTMARK<br />SUNSET / 26</span><span className="inbox-hero__art-sun" /><span className="inbox-hero__art-line" /><span className="inbox-hero__art-caption">from here<br />to you.</span></div>
+      </section>
+
+      {checkinMessage && <p role="status" className="status-note" style={{ marginBottom: 16 }}>{checkinMessage}</p>}
+      <NotificationPrompt activeUserId={activeUser.id} />
+
+      <div className="inbox-grid">
+        <section style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
+            <div><p className="eyebrow">The post</p><h2 className="section-title">Your letters</h2></div>
+            <div className="tab-row" role="tablist" aria-label="Letters">
+              <button className="tab" role="tab" aria-selected={tab === 'inbox'} onClick={() => setTab('inbox')}>Inbox {inbox.length}</button>
+              <button className="tab" role="tab" aria-selected={tab === 'outbox'} onClick={() => setTab('outbox')}>Sent {outbox.length}</button>
+            </div>
+          </div>
+          {visible.length ? <div className="letter-list">{visible.map(letter => <LetterRow key={letter.id} letter={letter} isOutbox={tab === 'outbox'} />)}</div>
+            : <div className="panel panel--quiet"><h3 className="section-title" style={{ fontSize: 25 }}>{tab === 'inbox' ? 'Nothing here yet' : 'Your first letter starts here'}</h3><p className="body-copy">{tab === 'inbox' ? 'Letters sent to you will appear when their journey is complete.' : 'Write something you would like your person to keep.'}</p>{tab === 'outbox' && <Link className="text-link" href="/compose">Write a letter</Link>}</div>}
+        </section>
+        <aside style={{ minWidth: 0 }}><DailyMoodWidget activeUserId={activeUser.id} /></aside>
+      </div>
+    </main>
+  </div>;
 }

@@ -13,18 +13,7 @@ import { getActiveUser } from '@/lib/session';
 import prisma from '@/lib/prisma';
 import LetterClient from './LetterClient';
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  const letter = await prisma.letter.findUnique({
-    where: { id },
-    select: { title: true },
-  });
-  return { title: letter ? `${letter.title} | Sunset Messages` : 'Letter | Sunset Messages' };
-}
+export const metadata = { title: 'Letter | Sunset Messages' };
 
 export default async function LetterPage({
   params,
@@ -52,19 +41,11 @@ export default async function LetterPage({
   const now = new Date();
   const isRecipient = letter.recipientId === activeUser.id;
   const isDelivered = letter.deliverAt <= now;
-  const locked = !isDelivered;
+  const locked = isRecipient && !isDelivered;
 
   // If letter is RETURNED or IN_FLIGHT, recipient may not view it (True Blind Delivery)
-  if (isRecipient && letter.status !== 'DELIVERED') {
+  if (isRecipient && (letter.status !== 'DELIVERED' && !(letter.status === 'IN_FLIGHT' && isDelivered))) {
     redirect('/');
-  }
-
-  // Mark as opened on first view by recipient after delivery
-  if (isRecipient && isDelivered && !letter.openedAt && letter.status === 'DELIVERED') {
-    await prisma.letter.update({
-      where: { id },
-      data: { openedAt: now },
-    });
   }
 
   const msUntilDelivery = isRecipient
@@ -73,7 +54,10 @@ export default async function LetterPage({
 
   return (
     <LetterClient
-      letter={JSON.parse(JSON.stringify(letter))}
+      letter={JSON.parse(JSON.stringify({
+        ...letter,
+        status: isDelivered && letter.status === 'IN_FLIGHT' ? 'DELIVERED' : letter.status,
+      }))}
       activeUserId={activeUser.id}
       locked={locked}
       msUntilDelivery={msUntilDelivery}

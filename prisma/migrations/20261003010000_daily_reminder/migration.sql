@@ -1,0 +1,1 @@
+ALTER TABLE "User" ADD COLUMN "lastReminderAt" TIMESTAMP(3);

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { CryptoProvider } from '@/context/CryptoContext';
+import { getActiveUserId } from '@/lib/session';
 
 export const metadata: Metadata = {
   title: {
@@ -14,9 +15,6 @@ export const metadata: Metadata = {
     capable: true,
     title: 'Sunset Messages',
     statusBarStyle: 'black-translucent',
-    startupImage: [
-      { url: '/icons/splash-1179x2556.png', media: '(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)' },
-    ],
   },
 
   icons: {
@@ -51,17 +49,15 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#8AA3C2' },
-    { media: '(prefers-color-scheme: dark)',  color: '#2B4162' },
-  ],
+  themeColor: '#FFF8ED',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const userId = await getActiveUserId();
   return (
     <html lang="en">
       <head>
@@ -72,7 +68,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
-        <meta name="msapplication-TileColor" content="#8AA3C2" />
+        <meta name="msapplication-TileColor" content="#FFF8ED" />
         <meta name="msapplication-TileImage" content="/icons/icon-192.png" />
       </head>
       <body className="antialiased safe-top safe-bottom">
@@ -83,7 +79,7 @@ export default function RootLayout({
           3. Publishes the public key to /api/users/public-key
           4. Makes keypair available to all child components via useCrypto()
         */}
-        <CryptoProvider>
+        <CryptoProvider userId={userId}>
           {children}
         </CryptoProvider>
       </body>

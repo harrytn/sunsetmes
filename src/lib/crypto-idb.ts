@@ -12,7 +12,7 @@
 
 const DB_NAME = 'sm-keys';
 const STORE_NAME = 'keypairs';
-const KEY_ID = 'main';
+const LEGACY_KEY_ID = 'main';
 const DB_VERSION = 1;
 
 function openDb(): Promise<IDBDatabase> {
@@ -35,13 +35,23 @@ interface StoredKeypair {
   privateKey: CryptoKey;
 }
 
-export async function getStoredKeypair(): Promise<CryptoKeyPair | null> {
+export async function getStoredKeypair(userId: string): Promise<CryptoKeyPair | null> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
-    const req = tx.objectStore(STORE_NAME).get(KEY_ID);
+    const store = tx.objectStore(STORE_NAME);
+    const req = store.get(userId);
     req.onsuccess = () => {
       const record = req.result as StoredKeypair | undefined;
+      if (!record) {
+        const legacy = store.get(LEGACY_KEY_ID);
+        legacy.onsuccess = () => {
+          const old = legacy.result as StoredKeypair | undefined;
+          resolve(old ? { publicKey: old.publicKey, privateKey: old.privateKey } : null);
+        };
+        legacy.onerror = () => reject(legacy.error);
+        return;
+      }
       if (!record) return resolve(null);
       resolve({
         publicKey: record.publicKey,
@@ -52,12 +62,12 @@ export async function getStoredKeypair(): Promise<CryptoKeyPair | null> {
   });
 }
 
-export async function storeKeypair(keypair: CryptoKeyPair): Promise<void> {
+export async function storeKeypair(userId: string, keypair: CryptoKeyPair): Promise<void> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const req = tx.objectStore(STORE_NAME).put({
-      id: KEY_ID,
+      id: userId,
       publicKey: keypair.publicKey,
       privateKey: keypair.privateKey,
     });
@@ -67,11 +77,11 @@ export async function storeKeypair(keypair: CryptoKeyPair): Promise<void> {
   });
 }
 
-export async function clearStoredKeypair(): Promise<void> {
+export async function clearStoredKeypair(userId: string): Promise<void> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
-    const req = tx.objectStore(STORE_NAME).delete(KEY_ID);
+    const req = tx.objectStore(STORE_NAME).delete(userId);
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });

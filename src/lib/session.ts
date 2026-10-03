@@ -6,10 +6,17 @@
  */
 
 import { cookies } from 'next/headers';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import prisma from '@/lib/prisma';
 
 export const SESSION_COOKIE = 'sm_active_user';
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
+function signature(userId: string): string {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) throw new Error('SESSION_SECRET is required.');
+  return createHmac('sha256', secret).update(userId).digest('base64url');
+}
 
 /**
  * Read the active user ID from the HTTP-only session cookie.
@@ -17,7 +24,14 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
  */
 export async function getActiveUserId(): Promise<string | null> {
   const cookieStore = await cookies();
-  return cookieStore.get(SESSION_COOKIE)?.value ?? null;
+  const value = cookieStore.get(SESSION_COOKIE)?.value;
+  if (!value) return null;
+  const separator = value.lastIndexOf('.');
+  if (separator < 1) return null;
+  const userId = value.slice(0, separator);
+  const supplied = Buffer.from(value.slice(separator + 1));
+  const expected = Buffer.from(signature(userId));
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected) ? userId : null;
 }
 
 /**
@@ -50,7 +64,7 @@ export async function getActiveUser() {
  */
 export async function setActiveUserCookie(userId: string): Promise<void> {
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, userId, {
+  cookieStore.set(SESSION_COOKIE, `${userId}.${signature(userId)}`, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',

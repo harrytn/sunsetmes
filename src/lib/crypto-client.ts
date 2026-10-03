@@ -185,6 +185,7 @@ export async function encryptLetter(
   senderKeypair: CryptoKeyPair,
   addressFrom?: string,
   addressTo?: string,
+  pigeonDestination?: string,
 ): Promise<EncryptedLetterPayload> {
   // 1. Generate ephemeral AES-GCM key
   const aesKey = await generateAesKey();
@@ -194,6 +195,7 @@ export async function encryptLetter(
     content,
     addressFrom: addressFrom?.trim() || '',
     addressTo: addressTo?.trim() || '',
+    pigeonDestination: pigeonDestination?.trim() || '',
   });
 
   // 3. Encrypt payload
@@ -225,7 +227,7 @@ export async function decryptLetter(
   payload: EncryptedLetterPayload,
   privateKey: CryptoKey,
   isRecipient: boolean,
-): Promise<{ content: string; addressFrom?: string; addressTo?: string }> {
+): Promise<{ content: string; addressFrom?: string; addressTo?: string; pigeonDestination?: string }> {
   // 1. Choose the wrapped key for this user's role
   const wrappedKey = isRecipient
     ? payload.encryptedKeyRecipient
@@ -245,6 +247,7 @@ export async function decryptLetter(
         content: parsed.content || '',
         addressFrom: parsed.addressFrom || '',
         addressTo: parsed.addressTo || '',
+        pigeonDestination: parsed.pigeonDestination || '',
       };
     }
   } catch {
@@ -313,7 +316,7 @@ export async function exportKeyWithPassphrase(
 export async function importKeyWithPassphrase(
   blob: string,
   passphrase: string,
-): Promise<CryptoKey> {
+): Promise<CryptoKeyPair> {
   const parts = blob.split('.');
   if (parts.length < 3) throw new Error('Invalid backup blob format.');
   const saltB64 = parts[0];
@@ -322,5 +325,14 @@ export async function importKeyWithPassphrase(
   const salt = new Uint8Array(base64ToBuffer(saltB64)) as Uint8Array<ArrayBuffer>;
   const { derivedKey } = await deriveKeyFromPassphrase(passphrase, salt);
   const jwkStr = await aesDecrypt(derivedKey, ciphertext, iv);
-  return importPrivateKeyJwk(jwkStr);
+  const privateJwk = JSON.parse(jwkStr) as JsonWebKey;
+  if (!privateJwk.n || !privateJwk.e || privateJwk.kty !== 'RSA') {
+    throw new Error('Backup does not contain a valid RSA keypair.');
+  }
+  const publicJwk: JsonWebKey = { kty: 'RSA', n: privateJwk.n, e: privateJwk.e, alg: 'RSA-OAEP-256', ext: true };
+  const [privateKey, publicKey] = await Promise.all([
+    importPrivateKeyJwk(jwkStr),
+    crypto.subtle.importKey('jwk', publicJwk, RSA_PARAMS, true, ['encrypt']),
+  ]);
+  return { privateKey, publicKey };
 }
