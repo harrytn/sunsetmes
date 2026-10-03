@@ -1,14 +1,12 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import { CryptoProvider } from '@/context/CryptoContext';
-import { getActiveUserId } from '@/lib/session';
 
 export const metadata: Metadata = {
   title: {
     default: 'Sunset Messages',
     template: '%s | Sunset Messages',
   },
-  description: 'Private, end-to-end encrypted letters between Sun and Moon.',
+  description: 'Slow letters between Sun and Moon.',
   manifest: '/manifest.json',
 
   appleWebApp: {
@@ -32,7 +30,7 @@ export const metadata: Metadata = {
     type: 'website',
     siteName: 'Sunset Messages',
     title: 'Sunset Messages',
-    description: 'Private end-to-end encrypted letters between Sun and Moon.',
+    description: 'Slow letters between Sun and Moon.',
   },
 
   formatDetection: {
@@ -57,7 +55,6 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const userId = await getActiveUserId();
   return (
     <html lang="en">
       <head>
@@ -72,16 +69,7 @@ export default async function RootLayout({
         <meta name="msapplication-TileImage" content="/icons/icon-192.png" />
       </head>
       <body className="antialiased safe-top safe-bottom">
-        {/*
-          CryptoProvider is a client component that:
-          1. Checks IndexedDB for an existing RSA keypair
-          2. Generates one if absent, stores private key in IDB
-          3. Publishes the public key to /api/users/public-key
-          4. Makes keypair available to all child components via useCrypto()
-        */}
-        <CryptoProvider userId={userId}>
-          {children}
-        </CryptoProvider>
+        {children}
       </body>
     </html>
   );

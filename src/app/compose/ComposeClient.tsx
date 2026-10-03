@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import PigeonCalculator, { type PigeonResult } from '@/components/PigeonCalculator';
-import { useCrypto } from '@/context/CryptoContext';
-import { encryptLetter } from '@/lib/crypto-client';
 import { recordDailyVisit } from '@/lib/daily-visit';
 
 type DeliveryType = 'STANDARD' | 'EXPRESS' | 'PIGEON';
@@ -18,7 +16,6 @@ const OPTIONS: { type: DeliveryType; name: string; time: string; cost: number }[
 
 export default function ComposeClient({ activeUserId, recipients, pigeonCoins }: { activeUserId: string; recipients: Recipient[]; pigeonCoins: number }) {
   const router = useRouter();
-  const { keypair, isReady } = useCrypto();
   const [recipientId, setRecipientId] = useState(recipients[0]?.id ?? '');
   const [title, setTitle] = useState('');
   const [addressFrom, setAddressFrom] = useState('');
@@ -39,18 +36,16 @@ export default function ComposeClient({ activeUserId, recipients, pigeonCoins }:
     if (!title.trim() || !content.trim()) { setError('Add a subject and your letter before sending.'); return; }
     if (coins < cost) { setError(`You need ${cost} PigeonCoins for this delivery. You have ${coins}.`); return; }
     if (deliveryType === 'PIGEON' && !pigeonData) { setError('Calculate the pigeon route before sending.'); return; }
-    if (!keypair || !isReady) { setError('Your encryption key is still loading. Please try again in a moment.'); return; }
-
     setSending(true);
     try {
-      const publicKeyResponse = await fetch(`/api/users/public-key?userId=${recipientId}`);
-      if (!publicKeyResponse.ok) {
-        const data = await publicKeyResponse.json();
-        throw new Error(data.error ?? 'The recipient needs to open the app before you can send a letter.');
-      }
-      const { publicKey } = await publicKeyResponse.json() as { publicKey: string };
-      const encrypted = await encryptLetter(content.trim(), publicKey, keypair, addressFrom.trim(), addressTo.trim(), deliveryType === 'PIGEON' ? pigeonData?.destAddress : undefined);
-      const body: Record<string, unknown> = { recipientId, title: title.trim(), deliveryType, ...encrypted };
+      const body: Record<string, unknown> = {
+        recipientId,
+        title: title.trim(),
+        content: content.trim(),
+        addressFrom: addressFrom.trim(),
+        addressTo: addressTo.trim(),
+        deliveryType,
+      };
       if (deliveryType === 'PIGEON' && pigeonData) {
         body.senderLat = pigeonData.senderLat;
         body.senderLng = pigeonData.senderLng;
@@ -80,7 +75,7 @@ export default function ComposeClient({ activeUserId, recipients, pigeonCoins }:
       <section className="page-intro page-intro--compose">
         <p className="eyebrow">The Sunset Post · A new letter</p>
         <h1 className="display-title">Write what matters.</h1>
-        <p className="body-copy">Your letter travels slowly. Its body and written addresses are encrypted before it leaves this device.</p>
+        <p className="body-copy">Your letter travels slowly. Its text is saved with your account so both profiles can read it.</p>
       </section>
       <div className="compose-grid">
         <div className="form-stack">
@@ -89,8 +84,8 @@ export default function ComposeClient({ activeUserId, recipients, pigeonCoins }:
             <div><label className="field-label" htmlFor="recipient-select">To</label><select id="recipient-select" className="field" value={recipientId} onChange={event => setRecipientId(event.target.value)}>{recipients.map(recipient => <option key={recipient.id} value={recipient.id}>{recipient.name}</option>)}</select></div>
             <div><label className="field-label" htmlFor="letter-title">Subject</label><input id="letter-title" className="field" maxLength={120} value={title} onChange={event => setTitle(event.target.value)} /><p className="field-help">The subject is visible on the envelope.</p></div>
             <div className="form-row">
-              <div><label className="field-label" htmlFor="address-from">Return address</label><input id="address-from" className="field" maxLength={100} value={addressFrom} onChange={event => setAddressFrom(event.target.value)} /><p className="field-help">Optional and encrypted.</p></div>
-              <div><label className="field-label" htmlFor="address-to">Destination address</label><input id="address-to" className="field" maxLength={100} value={addressTo} onChange={event => setAddressTo(event.target.value)} /><p className="field-help">Optional and encrypted.</p></div>
+              <div><label className="field-label" htmlFor="address-from">Return address</label><input id="address-from" className="field" maxLength={100} value={addressFrom} onChange={event => setAddressFrom(event.target.value)} /><p className="field-help">Optional.</p></div>
+              <div><label className="field-label" htmlFor="address-to">Destination address</label><input id="address-to" className="field" maxLength={100} value={addressTo} onChange={event => setAddressTo(event.target.value)} /><p className="field-help">Optional.</p></div>
             </div>
           </section>
           <section className="panel"><label className="field-label" htmlFor="letter-content">Your letter</label><textarea id="letter-content" className="field" rows={12} value={content} onChange={event => setContent(event.target.value)} placeholder="Begin your letter here…" style={{ font: '17px/1.7 Georgia, serif', minHeight: 300 }} /></section>
@@ -102,10 +97,9 @@ export default function ComposeClient({ activeUserId, recipients, pigeonCoins }:
               {OPTIONS.map(option => <button key={option.type} className="choice" aria-pressed={deliveryType === option.type} disabled={coins < option.cost} onClick={() => setDeliveryType(option.type)}><span className="choice__name">{option.name}</span><span className="choice__meta">{option.time}</span><span className="choice__price">{option.cost} PigeonCoins</span></button>)}
             </div>
             {deliveryType === 'PIGEON' && <div style={{ borderTop: '1px solid var(--rule)', marginTop: 22, paddingTop: 22 }}><h3 className="section-title" style={{ fontSize: 24, marginBottom: 14 }}>Pigeon route</h3><PigeonCalculator onResult={setPigeonData} onClear={() => setPigeonData(null)} /></div>}
-            {!isReady && <p role="status" className="status-note" style={{ marginTop: 18 }}>Preparing your encryption key…</p>}
             {coins < cost && <p className="status-note status-note--error" style={{ marginTop: 18 }}>You need {cost} PigeonCoins and currently have {coins}. Visit each day to earn more.</p>}
             {error && <p role="alert" className="status-note status-note--error" style={{ marginTop: 18 }}>{error}</p>}
-            <button id="send-letter-btn" className="action action--primary" style={{ width: '100%', marginTop: 24 }} disabled={sending || !isReady || coins < cost} onClick={() => void send()}>{sending ? 'Encrypting and sending…' : `Send letter · ${cost} coins`}</button>
+            <button id="send-letter-btn" className="action action--primary" style={{ width: '100%', marginTop: 24 }} disabled={sending || coins < cost} onClick={() => void send()}>{sending ? 'Sending…' : `Send letter · ${cost} coins`}</button>
           </section>
         </aside>
       </div>

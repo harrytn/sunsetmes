@@ -1,7 +1,7 @@
 /**
  * app/api/letters/route.ts
- * GET  /api/letters  → list inbox + outbox (no encrypted payload)
- * POST /api/letters  → send an E2EE-encrypted letter
+ * GET  /api/letters  → list inbox + outbox
+ * POST /api/letters  → send a readable letter
  *
  * Economy: All delivery methods now cost PigeonCoins (deducted on send).
  *   STANDARD: 50 coins, 14 days
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
   })) });
 }
 
-// ─── POST – Send an E2EE Letter ───────────────────────────────────────────────
+// ─── POST – Send a Letter ─────────────────────────────────────────────────────
 
 export interface SendLetterBody {
   recipientId: string;
@@ -94,11 +94,9 @@ export interface SendLetterBody {
   waxSealColor?: string;
   deliveryType: DeliveryType;
 
-  // E2EE fields (required)
-  encryptedContent: string;
-  iv: string;
-  encryptedKeyRecipient: string;
-  encryptedKeySender: string;
+  content: string;
+  addressFrom?: string;
+  addressTo?: string;
 
   // Pigeon-only fields
   senderLat?: number;
@@ -123,7 +121,7 @@ export async function POST(req: NextRequest) {
 
   const {
     recipientId, title, deliveryType, paperStyle, waxSealColor,
-    encryptedContent, iv, encryptedKeyRecipient, encryptedKeySender,
+    content, addressFrom, addressTo,
   } = body;
 
   // ── Validation ────────────────────────────────────────────────────────────
@@ -134,11 +132,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!encryptedContent || !iv || !encryptedKeyRecipient || !encryptedKeySender) {
+  if (typeof content !== 'string' || !content.trim() || content.length > 50_000) {
     return NextResponse.json(
-      { error: 'E2EE fields are required: encryptedContent, iv, encryptedKeyRecipient, encryptedKeySender.' },
+      { error: 'Enter a letter with up to 50,000 characters.' },
       { status: 400 },
     );
+  }
+  if (addressFrom != null && (typeof addressFrom !== 'string' || addressFrom.length > 100) ||
+      addressTo != null && (typeof addressTo !== 'string' || addressTo.length > 100)) {
+    return NextResponse.json({ error: 'Addresses must be 100 characters or fewer.' }, { status: 400 });
   }
 
   if (recipientId === userId) {
@@ -174,10 +176,9 @@ export async function POST(req: NextRequest) {
     senderId: userId,
     recipientId,
     title,
-    encryptedContent,
-    iv,
-    encryptedKeyRecipient,
-    encryptedKeySender,
+    content: content.trim(),
+    addressFrom: addressFrom?.trim() || null,
+    addressTo: addressTo?.trim() || null,
     paperStyle: paperStyle ?? 'classic-sand',
     waxSealColor: waxSealColor ?? '#1A8B9D',
   };

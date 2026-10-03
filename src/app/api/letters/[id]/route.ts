@@ -3,8 +3,7 @@
  * GET   /api/letters/[id]  → single letter with server-side delivery lock
  * PATCH /api/letters/[id]  → mark as opened
  *
- * E2EE lock: strips encryptedContent + encryptedKeyRecipient while locked.
- * RETURNED letters: visible to sender (who can decrypt via encryptedKeySender).
+ * Letter text is readable after the existing delivery and profile checks.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -24,8 +23,13 @@ export async function GET(
 
   const letter = await prisma.letter.findUnique({
     where: { id },
-    include: {
-      sender:    { select: { id: true, name: true, avatarColor: true } },
+    select: {
+      id: true, senderId: true, recipientId: true, title: true, paperStyle: true,
+      waxSealColor: true, deliveryType: true, status: true, deliverAt: true,
+      openedAt: true, senderLat: true, senderLng: true, destLat: true, destLng: true,
+      destAddress: true, distanceKm: true, flightDurationSec: true, pigeonNote: true,
+      createdAt: true, updatedAt: true, content: true, addressFrom: true, addressTo: true,
+      sender: { select: { id: true, name: true, avatarColor: true } },
       recipient: { select: { id: true, name: true, avatarColor: true } },
     },
   });

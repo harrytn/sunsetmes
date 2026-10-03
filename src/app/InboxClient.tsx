@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import UserSwitcher from '@/components/UserSwitcher';
 import NotificationPrompt from '@/components/NotificationPrompt';
-import KeyBackup from '@/components/KeyBackup';
 import DailyMoodWidget from '@/components/DailyMoodWidget';
 import { recordDailyVisit } from '@/lib/daily-visit';
 
@@ -40,7 +39,6 @@ function LetterRow({ letter, isOutbox }: { letter: Letter; isOutbox: boolean }) 
 
 export default function InboxClient({ activeUser, allUsers, letters }: { activeUser: Profile; allUsers: Profile[]; letters: Letter[] }) {
   const [tab, setTab] = useState<'inbox' | 'outbox'>('inbox');
-  const [showKeyBackup, setShowKeyBackup] = useState(false);
   const [coins, setCoins] = useState(activeUser.pigeonCoins);
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
 
@@ -63,13 +61,10 @@ export default function InboxClient({ activeUser, allUsers, letters }: { activeU
         <div className="brand"><span className="brand__name">Sunset Messages</span><span className="brand__tag">Letters worth waiting for</span></div>
         <div className="header-actions">
           <span className="small-copy" style={{ marginRight: 8 }}>{coins} PigeonCoins</span>
-          <button className="action action--quiet" onClick={() => setShowKeyBackup(value => !value)} aria-expanded={showKeyBackup} aria-controls="key-backup">Keys</button>
           <UserSwitcher activeUserId={activeUser.id} users={allUsers} />
         </div>
       </div>
     </header>
-
-    {showKeyBackup && <section id="key-backup" className="page-shell panel" style={{ marginTop: 20 }} aria-label="Key backup"><KeyBackup /></section>}
 
     <main className="page-shell page-main">
       <section className="inbox-hero">

@@ -2,10 +2,8 @@
  * app/letter/[id]/page.tsx  (Server Component)
  *
  * Fetches letter metadata server-side. Enforces the delivery lock.
- * Passes encrypted fields to LetterClient for client-side decryption.
- *
- * E2EE: The server only stores/returns ciphertext. Decryption happens
- * entirely in the browser using the user's IndexedDB private key.
+ * Passes readable letter text to LetterClient after checking profile access
+ * and delivery timing.
  */
 
 import { notFound, redirect } from 'next/navigation';
@@ -26,8 +24,12 @@ export default async function LetterPage({
 
   const letter = await prisma.letter.findUnique({
     where: { id },
-    include: {
-      sender:    { select: { id: true, name: true, avatarColor: true } },
+    select: {
+      id: true, senderId: true, recipientId: true, title: true, waxSealColor: true,
+      deliveryType: true, status: true, deliverAt: true, openedAt: true, createdAt: true,
+      distanceKm: true, pigeonNote: true, destAddress: true,
+      content: true, addressFrom: true, addressTo: true,
+      sender: { select: { id: true, name: true, avatarColor: true } },
       recipient: { select: { id: true, name: true, avatarColor: true } },
     },
   });

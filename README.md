@@ -15,9 +15,7 @@ Existing installations with a database created using `prisma db push` have a bas
 
 ## Privacy and delivery
 
-Each profile requires its own passcode. Session cookies are signed with `SESSION_SECRET`. The letter body and written postal addresses are encrypted in the browser. Letter subjects, delivery dates, sender and recipient identities, and route distance are readable metadata. For new pigeon letters, GPS coordinates and the entered destination are used to calculate delivery but are not stored in the letter record. The destination lookup is sent to OpenStreetMap.
-
-Encryption keys are stored per profile in the browser. Back up each profile's key from the app before moving to another device. Restoring a backup restores the matching public and private key.
+Each profile requires its own passcode. Session cookies are signed with `SESSION_SECRET`. New letter text and written postal addresses are stored as readable text in the database so either profile can open them without a device key. Anyone with database access can read new letter text. Letters created before this change remain in their original encrypted form and are preserved, but the app no longer decrypts them. For new pigeon letters, GPS coordinates and the entered destination are used to calculate delivery but are not stored in the letter record. The destination lookup is sent to OpenStreetMap.
 
 The inbox shows a letter once its scheduled arrival time passes, even if the delivery checker has not run. `vercel.json` schedules one daily checker at 21:00 UTC, around 22:00 Lagos time. It sends one inbox reminder per profile when the user did not visit that Lagos day, or when an unread letter arrived after their visit. Vercel Hobby may run the job later within the scheduled hour. Set `CRON_SECRET` and all three VAPID values in production. Each profile must enable browser notifications on its device.
 

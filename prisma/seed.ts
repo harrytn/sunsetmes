@@ -1,7 +1,7 @@
 /**
  * prisma/seed.ts  –  Sun & Moon edition (Economy Overhaul)
  *
- * Seeds two users only. Letters must be composed through the UI (E2EE).
+ * Seeds the two profiles only. Letters are composed through the UI.
  * Run with:  npx prisma db seed
  */
 

@@ -1,5 +1,5 @@
 // prisma/schema.prisma
-// Prisma 7 schema — encrypted letters, daily moods, and archived questions
+// Prisma 7 schema — letters, daily moods, and archived questions
 
 generator client {
   provider = "prisma-client-js"
@@ -45,7 +45,7 @@ model User {
   avatarColor String  @default("#1A8B9D")
   pigeonCoins Int     @default(100)
 
-  /// RSA-OAEP 2048-bit public key stored as JWK JSON string.
+  /// Legacy key metadata kept for historical encrypted letters.
   publicKey String? @db.Text
 
   /// Tracks the last daily check-in to prevent double-granting.
@@ -73,18 +73,15 @@ model Letter {
 
   title String
 
-  // ── E2EE payload ───────────────────────────────────────────────────────────
-  /// AES-GCM-256 ciphertext of the letter body (base64)
-  encryptedContent String @db.Text
-
-  /// AES-GCM IV used to encrypt `encryptedContent` (base64, 12 bytes / 96-bit)
-  iv String
-
-  /// AES key wrapped with recipient's RSA-OAEP public key (base64)
-  encryptedKeyRecipient String @db.Text
-
-  /// AES key wrapped with sender's RSA-OAEP public key (base64)
-  encryptedKeySender String @db.Text
+  /// New letters are stored as readable text. Legacy encrypted fields remain
+  /// nullable so existing records are preserved without requiring decryption.
+  content              String? @db.Text
+  addressFrom          String?
+  addressTo            String?
+  encryptedContent     String? @db.Text
+  iv                   String?
+  encryptedKeyRecipient String? @db.Text
+  encryptedKeySender    String? @db.Text
 
   // ── Styling ────────────────────────────────────────────────────────────────
   paperStyle   String @default("classic-sand")
