@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import ts from 'typescript';
+
+const source = await readFile(new URL('../src/lib/profile-passcode.ts', import.meta.url), 'utf8');
+const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } });
+const { profilePasscodeMatches, SignInConfigurationError } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+process.env.SUN_PASSCODE = 'sun';
+process.env.MOON_PASSCODE = 'moon';
+process.env.SESSION_SECRET = 'verification-secret-only';
+assert.equal(profilePasscodeMatches('sun@sunset.local', 'sun'), true);
+assert.equal(profilePasscodeMatches('moon@sunset.local', 'moon'), true);
+assert.equal(profilePasscodeMatches('sun@sunset.local', 'moon'), false);
+assert.equal(profilePasscodeMatches('moon@sunset.local', 'sun'), false);
+assert.equal(profilePasscodeMatches('sun@sunset.local', 'SUN'), false);
+assert.equal(profilePasscodeMatches('sun@sunset.local', ' sun\n'), true);
+process.env.SUN_PASSCODE = ' sun\n';
+assert.equal(profilePasscodeMatches('sun@sunset.local', 'sun'), true);
+delete process.env.SUN_PASSCODE;
+assert.throws(() => profilePasscodeMatches('sun@sunset.local', 'anything'), error => error instanceof SignInConfigurationError && error.code === 'SUN_PASSCODE_MISSING');
+process.env.SUN_PASSCODE = 'sun';
+delete process.env.MOON_PASSCODE;
+assert.throws(() => profilePasscodeMatches('moon@sunset.local', 'anything'), error => error instanceof SignInConfigurationError && error.code === 'MOON_PASSCODE_MISSING');
+process.env.MOON_PASSCODE = 'moon';
+delete process.env.SESSION_SECRET;
+assert.throws(() => profilePasscodeMatches('sun@sunset.local', 'sun'), error => error instanceof SignInConfigurationError && error.code === 'SESSION_SECRET_MISSING');
+assert.equal(profilePasscodeMatches('unknown@example.com', 'sun'), false);
+console.log('Profile sign-in checks passed: separate passcodes, wrong-profile rejection, surrounding whitespace, and distinct missing-configuration errors.');

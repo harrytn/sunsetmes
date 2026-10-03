@@ -11,6 +11,8 @@ The interface uses a warm paper palette, editorial typography, and an original s
 3. Apply the schema with `npx prisma migrate deploy`. For a fresh database, seed the two profiles with `npx prisma db seed`.
 4. Start with `npm run dev`.
 
+Each Vercel project has its own environment variables, even when projects deploy the same Git repository. Configure `SUN_PASSCODE`, `MOON_PASSCODE`, and `SESSION_SECRET` in Production on every project whose website or existing home-screen icon is still used, then redeploy that project. The sign-in screen identifies the selected profile and current website. Missing sign-in settings are reported as configuration errors rather than incorrect passwords.
+
 Existing installations with a database created using `prisma db push` have a baseline migration. The connected Neon database was brought into sync and the baseline was marked as applied on October 3, 2026. Do not run the old initial migration against it.
 
 ## Privacy and delivery

@@ -1,25 +1,16 @@
 /**
  * app/api/users/switch/route.ts
  * POST /api/users/switch
- * Body: { userId: string }
+ * Body: { userId: string, passcode: string }
  *
  * Sets the active user session cookie (HTTP-only).
- * The frontend user-switcher calls this to toggle between Soleil & Marina.
+ * The frontend uses this to sign in to Sun or Moon.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { setActiveUserCookie } from '@/lib/session';
 import prisma from '@/lib/prisma';
-import { createHmac, timingSafeEqual } from 'node:crypto';
-
-function passcodeMatches(email: string, passcode: string): boolean {
-  const expected = email === 'sun@sunset.local' ? process.env.SUN_PASSCODE
-    : email === 'moon@sunset.local' ? process.env.MOON_PASSCODE : undefined;
-  const secret = process.env.SESSION_SECRET;
-  if (!expected || !secret) return false;
-  const digest = (value: string) => createHmac('sha256', secret).update(value).digest();
-  return timingSafeEqual(digest(passcode), digest(expected));
-}
+import { profilePasscodeMatches, SignInConfigurationError } from '@/lib/profile-passcode';
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,14 +26,17 @@ export async function POST(req: NextRequest) {
       select: { id: true, name: true, email: true, avatarColor: true },
     });
 
-    if (!user || !passcodeMatches(user.email, passcode)) {
+    if (!user || !profilePasscodeMatches(user.email, passcode)) {
       return NextResponse.json({ error: 'Incorrect profile or passcode.' }, { status: 401 });
     }
 
     await setActiveUserCookie(userId);
 
     return NextResponse.json({ user });
-  } catch {
+  } catch (cause) {
+    if (cause instanceof SignInConfigurationError) {
+      return NextResponse.json({ error: cause.message, code: cause.code }, { status: 503 });
+    }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

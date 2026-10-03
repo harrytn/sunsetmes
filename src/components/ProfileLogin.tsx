@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import WebsiteAddress from '@/components/WebsiteAddress';
 
 type Profile = { id: string; name: string; avatarColor: string };
 
@@ -11,6 +12,7 @@ export default function ProfileLogin({ profiles }: { profiles: Profile[] }) {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const profileName = profiles.find(profile => profile.id === userId)?.name;
 
   async function enter(event: React.FormEvent) {
     event.preventDefault();
@@ -44,12 +46,13 @@ export default function ProfileLogin({ profiles }: { profiles: Profile[] }) {
           </select>
         </div>
         <div>
-          <label className="field-label" htmlFor="passcode">Passcode</label>
+          <label className="field-label" htmlFor="passcode">Passcode{profileName ? ` for ${profileName}` : ''}</label>
           <input id="passcode" className="field" type="password" autoComplete="current-password" value={passcode} onChange={e => setPasscode(e.target.value)} required />
         </div>
         {error && <p role="alert" className="status-note status-note--error" style={{ margin: 0 }}>{error}</p>}
-        <button className="action action--primary" disabled={busy || !userId || !passcode}>{busy ? 'Opening your inbox…' : 'Open your inbox'}</button>
+        <button className="action action--primary" disabled={busy || !userId || !passcode}>{busy ? 'Opening your inbox…' : profileName ? `Open ${profileName}’s inbox` : 'Open your inbox'}</button>
       </form>
+      <WebsiteAddress />
     </div>
     <div className="login-visual" aria-hidden="true">
       <div className="login-art">
