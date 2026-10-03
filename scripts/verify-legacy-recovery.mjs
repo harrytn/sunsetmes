@@ -78,9 +78,30 @@ globalThis.fetch = async (_url, options) => {
   }
   return Response.json({ letters: [wrapped], next: null });
 };
-assert.deepEqual(await recoverLegacyLetters('profile'), { restored: 1, remaining: 0 });
+assert.deepEqual(await recoverLegacyLetters('profile'), { restored: 1, remaining: 0, savedKeys: 2, matchedLetters: 1, rejectedLetters: 0, keySearchIssue: null });
 assert.equal(saved.content, content); assert.equal(dbClosed, true);
+// A missing database is different from an unreadable browser store.
+globalThis.indexedDB = { open() {
+  const request = { transaction: { abort() { setTimeout(() => request.onerror?.(), 0); } } };
+  setTimeout(() => request.onupgradeneeded(), 0);
+  return request;
+} };
+assert.deepEqual(await recoverLegacyLetters('empty-browser'), { restored: 0, remaining: 1, savedKeys: 0, matchedLetters: 0, rejectedLetters: 0, keySearchIssue: null });
+globalThis.indexedDB = { open() { throw new Error('Browser storage unavailable'); } };
+const storageFailure = await recoverLegacyLetters('blocked-browser');
+assert.equal(storageFailure.savedKeys, 0);
+assert.match(storageFailure.keySearchIssue, /could not access/);
 delete globalThis.indexedDB;
-assert.deepEqual(await recoverLegacyLetters('another-device'), { restored: 0, remaining: 1 });
-assert.deepEqual(await recoverLegacyLetters('backup-device', [await importLegacyBackup(backup, passphrase)]), { restored: 1, remaining: 0 });
+const missingKeys = await recoverLegacyLetters('another-device');
+assert.equal(missingKeys.restored, 0); assert.equal(missingKeys.remaining, 1); assert.equal(missingKeys.savedKeys, 0);
+const restoredBackup = await recoverLegacyLetters('backup-device', [await importLegacyBackup(backup, passphrase)]);
+assert.equal(restoredBackup.restored, 1); assert.equal(restoredBackup.remaining, 0); assert.equal(restoredBackup.matchedLetters, 1);
+globalThis.fetch = async (_url, options) => options?.method === 'POST'
+  ? Response.json({ restoredIds: [] }) : Response.json({ letters: [wrapped], next: null });
+const rejected = await recoverLegacyLetters('rejected-body', [oldShared.privateKey]);
+assert.equal(rejected.matchedLetters, 1); assert.equal(rejected.rejectedLetters, 1); assert.equal(rejected.restored, 0);
+globalThis.fetch = async () => new Response(null, { status: 401 });
+await assert.rejects(recoverLegacyLetters('expired-session'), /session has expired/);
+globalThis.fetch = async () => new Response(null, { status: 500 });
+await assert.rejects(recoverLegacyLetters('server-error'), /server response 500/);
 console.log('Legacy recovery checks passed: shared and profile keys, both participants, original text and addresses, raw text, backup import, authenticated ciphertext, automatic persistence, and missing-key handling.');
