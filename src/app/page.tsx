@@ -69,10 +69,21 @@ export default async function HomePage() {
   });
 
   const now = new Date();
+  const legacyLetterCount = await prisma.letter.count({
+    where: {
+      content: null,
+      encryptedContent: { not: null },
+      OR: [
+        { senderId: activeUser.id },
+        { recipientId: activeUser.id, OR: [{ status: 'DELIVERED' }, { status: 'IN_FLIGHT', deliverAt: { lte: now } }] },
+      ],
+    },
+  });
   return (
     <InboxClient
       activeUser={activeUser}
       allUsers={allUsers}
+      legacyLetterCount={legacyLetterCount}
       letters={JSON.parse(JSON.stringify(letters.map((letter) => ({
         ...letter,
         status: letter.status === 'IN_FLIGHT' && letter.deliverAt <= now

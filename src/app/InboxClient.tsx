@@ -5,6 +5,7 @@ import Link from 'next/link';
 import UserSwitcher from '@/components/UserSwitcher';
 import NotificationPrompt from '@/components/NotificationPrompt';
 import DailyMoodWidget from '@/components/DailyMoodWidget';
+import LegacyLetterRecovery from '@/components/LegacyLetterRecovery';
 import { recordDailyVisit } from '@/lib/daily-visit';
 
 type Profile = { id: string; name: string; email: string; avatarColor: string; pigeonCoins: number };
@@ -37,7 +38,7 @@ function LetterRow({ letter, isOutbox }: { letter: Letter; isOutbox: boolean }) 
   </Link>;
 }
 
-export default function InboxClient({ activeUser, allUsers, letters }: { activeUser: Profile; allUsers: Profile[]; letters: Letter[] }) {
+export default function InboxClient({ activeUser, allUsers, letters, legacyLetterCount }: { activeUser: Profile; allUsers: Profile[]; letters: Letter[]; legacyLetterCount: number }) {
   const [tab, setTab] = useState<'inbox' | 'outbox'>('inbox');
   const [coins, setCoins] = useState(activeUser.pigeonCoins);
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export default function InboxClient({ activeUser, allUsers, letters }: { activeU
 
       {checkinMessage && <p role="status" className="status-note" style={{ marginBottom: 16 }}>{checkinMessage}</p>}
       <NotificationPrompt activeUserId={activeUser.id} />
+      {legacyLetterCount > 0 && <LegacyLetterRecovery key={activeUser.id} activeUserId={activeUser.id} />}
 
       <div className="inbox-grid">
         <section style={{ minWidth: 0 }}>
